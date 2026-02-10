@@ -1,2 +1,6 @@
 # MimiClaw - Common Default Configuration
 # Target-specific settings are in sdkconfig.defaults.esp32s3
+
+# LLM defaults (override via: idf.py menuconfig -> MimiClaw)
+CONFIG_MIMI_LLM_BASE_URL="https://api.anthropic.com/v1/messages"
+CONFIG_MIMI_LLM_API_KEY=""

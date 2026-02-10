@@ -1,0 +1,17 @@
+menu "MimiClaw"
+
+config MIMI_LLM_BASE_URL
+    string "LLM Base URL"
+    default "https://api.anthropic.com/v1/messages"
+    help
+        Full HTTPS endpoint for LLM chat requests.
+        Example: https://api.anthropic.com/v1/messages
+
+config MIMI_LLM_API_KEY
+    string "LLM API Key"
+    default ""
+    help
+        Build-time default API key used when NVS override is not set.
+        Note: this value is stored in sdkconfig.
+
+endmenu

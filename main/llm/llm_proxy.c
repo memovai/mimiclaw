@@ -3,6 +3,7 @@
 #include "proxy/http_proxy.h"
 
 #include <string.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
@@ -15,6 +16,10 @@ static const char *TAG = "llm";
 
 static char s_api_key[128] = {0};
 static char s_model[64] = MIMI_LLM_DEFAULT_MODEL;
+static char s_base_url[256] = MIMI_LLM_API_URL;
+static char s_base_host[128] = {0};
+static char s_base_path[160] = "/v1/messages";
+static uint16_t s_base_port = 443;
 
 /* ── Response buffer ──────────────────────────────────────────── */
 
@@ -67,12 +72,86 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+/* ── URL parsing ──────────────────────────────────────────────── */
+
+static esp_err_t llm_parse_base_url(const char *url)
+{
+    const char *prefix = "https://";
+    size_t prefix_len = strlen(prefix);
+
+    if (!url || strncmp(url, prefix, prefix_len) != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const char *host_start = url + prefix_len;
+    const char *path_start = strchr(host_start, '/');
+    const char *host_end = path_start ? path_start : (url + strlen(url));
+
+    if (host_end <= host_start) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const char *port_sep = NULL;
+    for (const char *p = host_start; p < host_end; p++) {
+        if (*p == ':') {
+            port_sep = p;
+            break;
+        }
+    }
+
+    size_t host_len = port_sep ? (size_t)(port_sep - host_start)
+                               : (size_t)(host_end - host_start);
+    if (host_len == 0 || host_len >= sizeof(s_base_host)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    memset(s_base_host, 0, sizeof(s_base_host));
+    memcpy(s_base_host, host_start, host_len);
+
+    s_base_port = 443;
+    if (port_sep) {
+        char port_buf[8] = {0};
+        size_t port_len = (size_t)(host_end - (port_sep + 1));
+        if (port_len == 0 || port_len >= sizeof(port_buf)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        memcpy(port_buf, port_sep + 1, port_len);
+        int port = atoi(port_buf);
+        if (port <= 0 || port > 65535) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        s_base_port = (uint16_t)port;
+    }
+
+    if (path_start) {
+        size_t path_len = strlen(path_start);
+        if (path_len >= sizeof(s_base_path)) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        memset(s_base_path, 0, sizeof(s_base_path));
+        memcpy(s_base_path, path_start, path_len);
+    } else {
+        strncpy(s_base_path, "/", sizeof(s_base_path) - 1);
+    }
+
+    return ESP_OK;
+}
+
 /* ── Init ─────────────────────────────────────────────────────── */
 
 esp_err_t llm_proxy_init(void)
 {
-    /* Start with build-time defaults */
-    if (MIMI_SECRET_API_KEY[0] != '\0') {
+    /* Start with menuconfig defaults */
+    strncpy(s_base_url, MIMI_LLM_API_URL, sizeof(s_base_url) - 1);
+    if (MIMI_LLM_API_KEY_DEFAULT[0] != '\0') {
+        strncpy(s_api_key, MIMI_LLM_API_KEY_DEFAULT, sizeof(s_api_key) - 1);
+    }
+
+    /* Optional fallback / override from build-time secrets */
+    if (MIMI_SECRET_LLM_BASE_URL[0] != '\0') {
+        strncpy(s_base_url, MIMI_SECRET_LLM_BASE_URL, sizeof(s_base_url) - 1);
+    }
+    if (s_api_key[0] == '\0' && MIMI_SECRET_API_KEY[0] != '\0') {
         strncpy(s_api_key, MIMI_SECRET_API_KEY, sizeof(s_api_key) - 1);
     }
     if (MIMI_SECRET_MODEL[0] != '\0') {
@@ -95,10 +174,19 @@ esp_err_t llm_proxy_init(void)
         nvs_close(nvs);
     }
 
+    esp_err_t parse_err = llm_parse_base_url(s_base_url);
+    if (parse_err != ESP_OK) {
+        ESP_LOGE(TAG, "Invalid LLM base URL '%s', fallback to default '%s'",
+                 s_base_url, "https://api.anthropic.com/v1/messages");
+        strncpy(s_base_url, "https://api.anthropic.com/v1/messages", sizeof(s_base_url) - 1);
+        ESP_ERROR_CHECK(llm_parse_base_url(s_base_url));
+    }
+
     if (s_api_key[0]) {
-        ESP_LOGI(TAG, "LLM proxy initialized (model: %s)", s_model);
+        ESP_LOGI(TAG, "LLM proxy initialized (model: %s, base_url: %s, key_len: %d)",
+                 s_model, s_base_url, (int)strlen(s_api_key));
     } else {
-        ESP_LOGW(TAG, "No API key. Use CLI: set_api_key <KEY>");
+        ESP_LOGW(TAG, "No API key. Configure in menuconfig or CLI: set_api_key <KEY>");
     }
     return ESP_OK;
 }
@@ -108,7 +196,7 @@ esp_err_t llm_proxy_init(void)
 static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out_status)
 {
     esp_http_client_config_t config = {
-        .url = MIMI_LLM_API_URL,
+        .url = s_base_url,
         .event_handler = http_event_handler,
         .user_data = rb,
         .timeout_ms = 120 * 1000,
@@ -136,20 +224,26 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
 static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *out_status)
 {
-    proxy_conn_t *conn = proxy_conn_open("api.anthropic.com", 443, 30000);
+    proxy_conn_t *conn = proxy_conn_open(s_base_host, s_base_port, 30000);
     if (!conn) return ESP_ERR_HTTP_CONNECT;
 
     int body_len = strlen(post_data);
     char header[512];
+    char host_header[160] = {0};
+    if (s_base_port == 443) {
+        snprintf(host_header, sizeof(host_header), "%s", s_base_host);
+    } else {
+        snprintf(host_header, sizeof(host_header), "%s:%u", s_base_host, s_base_port);
+    }
     int hlen = snprintf(header, sizeof(header),
-        "POST /v1/messages HTTP/1.1\r\n"
-        "Host: api.anthropic.com\r\n"
+        "POST %s HTTP/1.1\r\n"
+        "Host: %s\r\n"
         "Content-Type: application/json\r\n"
         "x-api-key: %s\r\n"
         "anthropic-version: %s\r\n"
         "Content-Length: %d\r\n"
         "Connection: close\r\n\r\n",
-        s_api_key, MIMI_LLM_API_VERSION, body_len);
+        s_base_path, host_header, s_api_key, MIMI_LLM_API_VERSION, body_len);
 
     if (proxy_conn_write(conn, header, hlen) < 0 ||
         proxy_conn_write(conn, post_data, body_len) < 0) {

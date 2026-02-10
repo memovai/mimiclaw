@@ -52,19 +52,31 @@ idf.py set-target esp32s3
 
 ### Configure
 
-MimiClaw uses a **two-layer config** system: build-time defaults in `mimi_secrets.h`, with runtime overrides via the serial CLI. CLI values are stored in NVS flash and take priority over build-time values.
+MimiClaw uses a **three-layer config** system:
+- Build-time defaults in `idf.py menuconfig` (recommended for LLM base URL and API key)
+- Optional fallback defaults in `mimi_secrets.h`
+- Runtime overrides via serial CLI (stored in NVS, highest priority)
 
 ```bash
 cp main/mimi_secrets.h.example main/mimi_secrets.h
 ```
 
-Edit `main/mimi_secrets.h`:
+Set LLM endpoint/key in menuconfig:
+
+```bash
+idf.py menuconfig
+# MimiClaw -> LLM Base URL
+# MimiClaw -> LLM API Key
+```
+
+Optionally edit `main/mimi_secrets.h` as fallback:
 
 ```c
 #define MIMI_SECRET_WIFI_SSID       "YourWiFiName"
 #define MIMI_SECRET_WIFI_PASS       "YourWiFiPassword"
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-#define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
+#define MIMI_SECRET_API_KEY         ""              // optional fallback if menuconfig key is empty
+#define MIMI_SECRET_LLM_BASE_URL    ""              // optional override/fallback for menuconfig base URL
 #define MIMI_SECRET_SEARCH_KEY      ""              // optional: Brave Search API key
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"

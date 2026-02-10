@@ -52,19 +52,31 @@ idf.py set-target esp32s3
 
 ### 配置
 
-MimiClaw 使用**两层配置**：`mimi_secrets.h` 提供编译时默认值，串口 CLI 可在运行时覆盖。CLI 设置的值存在 NVS Flash 中，优先级高于编译时值。
+MimiClaw 使用**三层配置**：
+- `idf.py menuconfig` 编译时默认值（推荐用于 LLM base_url 和 API key）
+- `mimi_secrets.h` 可选兜底默认值
+- 串口 CLI 运行时覆盖（存入 NVS，优先级最高）
 
 ```bash
 cp main/mimi_secrets.h.example main/mimi_secrets.h
 ```
 
-编辑 `main/mimi_secrets.h`：
+先在 menuconfig 里配置 LLM：
+
+```bash
+idf.py menuconfig
+# MimiClaw -> LLM Base URL
+# MimiClaw -> LLM API Key
+```
+
+可选：编辑 `main/mimi_secrets.h` 作为兜底：
 
 ```c
 #define MIMI_SECRET_WIFI_SSID       "你的WiFi名"
 #define MIMI_SECRET_WIFI_PASS       "你的WiFi密码"
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-#define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
+#define MIMI_SECRET_API_KEY         ""              // 可选兜底：仅当 menuconfig 未配置时使用
+#define MIMI_SECRET_LLM_BASE_URL    ""              // 可选：覆盖/兜底 menuconfig 的 base_url
 #define MIMI_SECRET_SEARCH_KEY      ""              // 可选：Brave Search API key
 #define MIMI_SECRET_PROXY_HOST      "10.0.0.1"      // 可选：代理地址
 #define MIMI_SECRET_PROXY_PORT      "7897"           // 可选：代理端口
