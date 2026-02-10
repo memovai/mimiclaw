@@ -97,6 +97,16 @@ ls /dev/ttyACM*          # Linux
 idf.py -p PORT flash monitor
 ```
 
+### AP Provisioning (No Hardcoded WiFi)
+
+If WiFi credentials are missing or STA connection times out, MimiClaw now starts a setup AP automatically:
+
+- AP SSID: `MimiClaw-Setup`
+- Portal URL: `http://192.168.4.1`
+- Flow: select SSID + input password -> save -> auto reboot
+
+The provisioning page includes a styled UI and WiFi scan dropdown for faster onboarding on phone/desktop.
+
 ### CLI Commands
 
 Connect via serial to configure or debug. **Config commands** let you change settings without recompiling — just plug in a USB cable anywhere.

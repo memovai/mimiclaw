@@ -21,6 +21,7 @@
 #include "cli/serial_cli.h"
 #include "proxy/http_proxy.h"
 #include "tools/tool_registry.h"
+#include "provision/ap_portal.h"
 
 static const char *TAG = "mimi";
 
@@ -135,9 +136,13 @@ void app_main(void)
             ESP_LOGI(TAG, "All services started!");
         } else {
             ESP_LOGW(TAG, "WiFi connection timeout. Check MIMI_SECRET_WIFI_SSID in mimi_secrets.h");
+            ESP_LOGW(TAG, "Starting AP provisioning portal...");
+            ESP_ERROR_CHECK(ap_portal_start());
         }
     } else {
         ESP_LOGW(TAG, "No WiFi credentials. Set MIMI_SECRET_WIFI_SSID in mimi_secrets.h");
+        ESP_LOGW(TAG, "Starting AP provisioning portal...");
+        ESP_ERROR_CHECK(ap_portal_start());
     }
 
     ESP_LOGI(TAG, "MimiClaw ready. Type 'help' for CLI commands.");

@@ -48,6 +48,9 @@
 #define MIMI_WIFI_MAX_RETRY          10
 #define MIMI_WIFI_RETRY_BASE_MS      1000
 #define MIMI_WIFI_RETRY_MAX_MS       30000
+#define MIMI_AP_PROV_SSID            "MimiClaw-Setup"
+#define MIMI_AP_PROV_CHANNEL         1
+#define MIMI_AP_PROV_MAX_CONN        4
 
 /* Telegram Bot */
 #define MIMI_TG_POLL_TIMEOUT_S       30

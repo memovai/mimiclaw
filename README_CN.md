@@ -97,6 +97,16 @@ ls /dev/ttyACM*          # Linux
 idf.py -p PORT flash monitor
 ```
 
+### AP 配网（无需硬编码 WiFi）
+
+当没有 WiFi 凭据，或 STA 连接超时时，MimiClaw 会自动启动配网 AP：
+
+- AP 名称：`MimiClaw-Setup`
+- 配网页地址：`http://192.168.4.1`
+- 流程：选择 SSID + 输入密码 -> 保存 -> 自动重启
+
+配网页面带有美化 UI，并提供附近 WiFi 扫描下拉列表，手机和桌面都可直接使用。
+
 ### 代理配置（国内用户）
 
 在国内需要代理才能访问 Telegram 和 Anthropic API。MimiClaw 内置 HTTP CONNECT 隧道支持。
