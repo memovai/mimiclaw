@@ -24,6 +24,7 @@ mmap_generate_*.h
 *.swp
 *.swo
 *~
+.codex
 
 # Environment
 .env

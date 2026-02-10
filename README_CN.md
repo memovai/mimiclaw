@@ -103,9 +103,15 @@ idf.py -p PORT flash monitor
 
 - AP 名称：`MimiClaw-Setup`
 - 配网页地址：`http://192.168.4.1`
-- 流程：选择 SSID + 输入密码 -> 保存 -> 自动重启
+- 流程：填写参数 -> 保存 -> 自动重启
 
 配网页面带有美化 UI，并提供附近 WiFi 扫描下拉列表，手机和桌面都可直接使用。
+同时支持一页配置：
+- WiFi SSID/密码
+- Telegram Bot Token
+- LLM Base URL / API Key / Model
+- Search API Key
+- 可选 HTTP 代理 Host/Port
 
 ### 代理配置（国内用户）
 
@@ -133,6 +139,7 @@ mimi> wifi_set MySSID MyPassword   # 换 WiFi
 mimi> set_tg_token 123456:ABC...   # 换 Telegram Bot Token
 mimi> set_api_key sk-ant-api03-... # 换 Anthropic API Key
 mimi> set_model claude-sonnet-4-5-20250929  # 换模型
+mimi> set_base_url https://api.anthropic.com/v1/messages  # 换 LLM endpoint
 mimi> set_proxy 192.168.1.83 7897  # 设置代理
 mimi> clear_proxy                  # 清除代理
 mimi> set_search_key BSA...        # 设置 Brave Search API Key

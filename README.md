@@ -103,9 +103,15 @@ If WiFi credentials are missing or STA connection times out, MimiClaw now starts
 
 - AP SSID: `MimiClaw-Setup`
 - Portal URL: `http://192.168.4.1`
-- Flow: select SSID + input password -> save -> auto reboot
+- Flow: fill settings -> save -> auto reboot
 
 The provisioning page includes a styled UI and WiFi scan dropdown for faster onboarding on phone/desktop.
+It now supports a one-page setup for:
+- WiFi SSID/password
+- Telegram bot token
+- LLM base URL / API key / model
+- Search API key
+- Optional HTTP proxy host/port
 
 ### CLI Commands
 
@@ -118,6 +124,7 @@ mimi> wifi_set MySSID MyPassword   # change WiFi network
 mimi> set_tg_token 123456:ABC...   # change Telegram bot token
 mimi> set_api_key sk-ant-api03-... # change Anthropic API key
 mimi> set_model claude-sonnet-4-5  # change LLM model
+mimi> set_base_url https://api.anthropic.com/v1/messages  # change LLM endpoint
 mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy
 mimi> set_search_key BSA...        # set Brave Search API key

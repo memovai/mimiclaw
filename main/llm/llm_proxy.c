@@ -74,12 +74,17 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 
 /* ── URL parsing ──────────────────────────────────────────────── */
 
-static esp_err_t llm_parse_base_url(const char *url)
+static esp_err_t llm_parse_base_url(const char *url,
+                                    char *out_host, size_t out_host_size,
+                                    char *out_path, size_t out_path_size,
+                                    uint16_t *out_port)
 {
     const char *prefix = "https://";
     size_t prefix_len = strlen(prefix);
 
-    if (!url || strncmp(url, prefix, prefix_len) != 0) {
+    if (!url || !out_host || !out_path || !out_port ||
+        out_host_size == 0 || out_path_size == 0 ||
+        strncmp(url, prefix, prefix_len) != 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -101,14 +106,14 @@ static esp_err_t llm_parse_base_url(const char *url)
 
     size_t host_len = port_sep ? (size_t)(port_sep - host_start)
                                : (size_t)(host_end - host_start);
-    if (host_len == 0 || host_len >= sizeof(s_base_host)) {
+    if (host_len == 0 || host_len >= out_host_size) {
         return ESP_ERR_INVALID_SIZE;
     }
 
-    memset(s_base_host, 0, sizeof(s_base_host));
-    memcpy(s_base_host, host_start, host_len);
+    memset(out_host, 0, out_host_size);
+    memcpy(out_host, host_start, host_len);
 
-    s_base_port = 443;
+    *out_port = 443;
     if (port_sep) {
         char port_buf[8] = {0};
         size_t port_len = (size_t)(host_end - (port_sep + 1));
@@ -120,20 +125,38 @@ static esp_err_t llm_parse_base_url(const char *url)
         if (port <= 0 || port > 65535) {
             return ESP_ERR_INVALID_ARG;
         }
-        s_base_port = (uint16_t)port;
+        *out_port = (uint16_t)port;
     }
 
     if (path_start) {
         size_t path_len = strlen(path_start);
-        if (path_len >= sizeof(s_base_path)) {
+        if (path_len >= out_path_size) {
             return ESP_ERR_INVALID_SIZE;
         }
-        memset(s_base_path, 0, sizeof(s_base_path));
-        memcpy(s_base_path, path_start, path_len);
+        memset(out_path, 0, out_path_size);
+        memcpy(out_path, path_start, path_len);
     } else {
-        strncpy(s_base_path, "/", sizeof(s_base_path) - 1);
+        strncpy(out_path, "/", out_path_size - 1);
     }
 
+    return ESP_OK;
+}
+
+static esp_err_t llm_apply_base_url(const char *url)
+{
+    char host[sizeof(s_base_host)] = {0};
+    char path[sizeof(s_base_path)] = {0};
+    uint16_t port = 443;
+
+    esp_err_t err = llm_parse_base_url(url, host, sizeof(host), path, sizeof(path), &port);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    strncpy(s_base_url, url, sizeof(s_base_url) - 1);
+    strncpy(s_base_host, host, sizeof(s_base_host) - 1);
+    strncpy(s_base_path, path, sizeof(s_base_path) - 1);
+    s_base_port = port;
     return ESP_OK;
 }
 
@@ -158,28 +181,32 @@ esp_err_t llm_proxy_init(void)
         strncpy(s_model, MIMI_SECRET_MODEL, sizeof(s_model) - 1);
     }
 
-    /* NVS overrides take highest priority (set via CLI) */
+    /* NVS overrides take highest priority (set via CLI / AP portal) */
     nvs_handle_t nvs;
     if (nvs_open(MIMI_NVS_LLM, NVS_READONLY, &nvs) == ESP_OK) {
-        char tmp[128] = {0};
+        char tmp[sizeof(s_base_url)] = {0};
         size_t len = sizeof(tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_api_key, tmp, sizeof(s_api_key) - 1);
         }
-        len = sizeof(tmp);
         memset(tmp, 0, sizeof(tmp));
+        len = sizeof(tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_MODEL, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_model, tmp, sizeof(s_model) - 1);
+        }
+        memset(tmp, 0, sizeof(tmp));
+        len = sizeof(tmp);
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_BASE_URL, tmp, &len) == ESP_OK && tmp[0]) {
+            strncpy(s_base_url, tmp, sizeof(s_base_url) - 1);
         }
         nvs_close(nvs);
     }
 
-    esp_err_t parse_err = llm_parse_base_url(s_base_url);
+    esp_err_t parse_err = llm_apply_base_url(s_base_url);
     if (parse_err != ESP_OK) {
         ESP_LOGE(TAG, "Invalid LLM base URL '%s', fallback to default '%s'",
                  s_base_url, "https://api.anthropic.com/v1/messages");
-        strncpy(s_base_url, "https://api.anthropic.com/v1/messages", sizeof(s_base_url) - 1);
-        ESP_ERROR_CHECK(llm_parse_base_url(s_base_url));
+        ESP_ERROR_CHECK(llm_apply_base_url("https://api.anthropic.com/v1/messages"));
     }
 
     if (s_api_key[0]) {
@@ -585,5 +612,34 @@ esp_err_t llm_set_model(const char *model)
 
     strncpy(s_model, model, sizeof(s_model) - 1);
     ESP_LOGI(TAG, "Model set to: %s", s_model);
+    return ESP_OK;
+}
+
+esp_err_t llm_set_base_url(const char *base_url)
+{
+    if (!base_url || base_url[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char host[sizeof(s_base_host)] = {0};
+    char path[sizeof(s_base_path)] = {0};
+    uint16_t port = 443;
+    esp_err_t parse_err = llm_parse_base_url(base_url, host, sizeof(host), path, sizeof(path), &port);
+    if (parse_err != ESP_OK) {
+        return parse_err;
+    }
+
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_LLM, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_BASE_URL, base_url));
+    ESP_ERROR_CHECK(nvs_commit(nvs));
+    nvs_close(nvs);
+
+    strncpy(s_base_url, base_url, sizeof(s_base_url) - 1);
+    strncpy(s_base_host, host, sizeof(s_base_host) - 1);
+    strncpy(s_base_path, path, sizeof(s_base_path) - 1);
+    s_base_port = port;
+
+    ESP_LOGI(TAG, "Base URL set to: %s", s_base_url);
     return ESP_OK;
 }

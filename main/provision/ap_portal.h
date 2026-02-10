@@ -6,7 +6,8 @@
  * Start SoftAP provisioning portal.
  *
  * The portal exposes:
- * - GET  /       : configuration page
- * - POST /save   : save SSID/password to NVS and reboot
+ * - GET  /                  : configuration page
+ * - GET  /api/config-status : read masked configuration status
+ * - POST /save              : save config to NVS and reboot
  */
 esp_err_t ap_portal_start(void);
