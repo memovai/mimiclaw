@@ -102,6 +102,28 @@ static int cmd_set_model(int argc, char **argv)
     return 0;
 }
 
+/* --- set_base_url command --- */
+static struct {
+    struct arg_str *url;
+    struct arg_end *end;
+} base_url_args;
+
+static int cmd_set_base_url(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&base_url_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, base_url_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = llm_set_base_url(base_url_args.url->sval[0]);
+    if (err != ESP_OK) {
+        printf("Invalid base URL. Expected full HTTPS URL, e.g. https://api.anthropic.com/v1/messages\n");
+        return 1;
+    }
+    printf("LLM base URL saved.\n");
+    return 0;
+}
+
 /* --- memory_read command --- */
 static int cmd_memory_read(int argc, char **argv)
 {
@@ -261,8 +283,10 @@ static int cmd_config_show(int argc, char **argv)
     print_config("WiFi SSID",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_SSID,     MIMI_SECRET_WIFI_SSID,  false);
     print_config("WiFi Pass",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_PASS,     MIMI_SECRET_WIFI_PASS,  true);
     print_config("TG Token",   MIMI_NVS_TG,     MIMI_NVS_KEY_TG_TOKEN, MIMI_SECRET_TG_TOKEN,   true);
-    print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_API_KEY,    true);
+    print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_LLM_API_KEY_DEFAULT, true);
     print_config("Model",      MIMI_NVS_LLM,    MIMI_NVS_KEY_MODEL,    MIMI_SECRET_MODEL,      false);
+    print_config("LLM Base URL", MIMI_NVS_LLM,  MIMI_NVS_KEY_BASE_URL,
+                 (MIMI_SECRET_LLM_BASE_URL[0] ? MIMI_SECRET_LLM_BASE_URL : MIMI_LLM_API_URL), false);
     print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
     print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
@@ -364,6 +388,17 @@ esp_err_t serial_cli_init(void)
         .argtable = &model_args,
     };
     esp_console_cmd_register(&model_cmd);
+
+    /* set_base_url */
+    base_url_args.url = arg_str1(NULL, NULL, "<url>", "Full LLM HTTPS URL");
+    base_url_args.end = arg_end(1);
+    esp_console_cmd_t base_url_cmd = {
+        .command = "set_base_url",
+        .help = "Set LLM base URL (e.g. https://api.anthropic.com/v1/messages)",
+        .func = &cmd_set_base_url,
+        .argtable = &base_url_args,
+    };
+    esp_console_cmd_register(&base_url_cmd);
 
     /* memory_read */
     esp_console_cmd_t mem_read_cmd = {

@@ -2,9 +2,18 @@
 
 /* MimiClaw Global Configuration */
 
-/* Build-time secrets (highest priority, override NVS) */
+#include "sdkconfig.h"
+
+/* Optional build-time secrets fallback */
 #if __has_include("mimi_secrets.h")
 #include "mimi_secrets.h"
+#endif
+
+#ifndef CONFIG_MIMI_LLM_BASE_URL
+#define CONFIG_MIMI_LLM_BASE_URL    "https://api.anthropic.com/v1/messages"
+#endif
+#ifndef CONFIG_MIMI_LLM_API_KEY
+#define CONFIG_MIMI_LLM_API_KEY     ""
 #endif
 
 #ifndef MIMI_SECRET_WIFI_SSID
@@ -18,6 +27,9 @@
 #endif
 #ifndef MIMI_SECRET_API_KEY
 #define MIMI_SECRET_API_KEY         ""
+#endif
+#ifndef MIMI_SECRET_LLM_BASE_URL
+#define MIMI_SECRET_LLM_BASE_URL    ""
 #endif
 #ifndef MIMI_SECRET_MODEL
 #define MIMI_SECRET_MODEL           ""
@@ -36,6 +48,9 @@
 #define MIMI_WIFI_MAX_RETRY          10
 #define MIMI_WIFI_RETRY_BASE_MS      1000
 #define MIMI_WIFI_RETRY_MAX_MS       30000
+#define MIMI_AP_PROV_SSID            "MimiClaw-Setup"
+#define MIMI_AP_PROV_CHANNEL         1
+#define MIMI_AP_PROV_MAX_CONN        4
 
 /* Telegram Bot */
 #define MIMI_TG_POLL_TIMEOUT_S       30
@@ -58,7 +73,8 @@
 /* LLM */
 #define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
 #define MIMI_LLM_MAX_TOKENS          4096
-#define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
+#define MIMI_LLM_API_URL             CONFIG_MIMI_LLM_BASE_URL
+#define MIMI_LLM_API_KEY_DEFAULT     CONFIG_MIMI_LLM_API_KEY
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 
@@ -101,6 +117,6 @@
 #define MIMI_NVS_KEY_TG_TOKEN        "bot_token"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
 #define MIMI_NVS_KEY_MODEL           "model"
+#define MIMI_NVS_KEY_BASE_URL        "base_url"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"
-

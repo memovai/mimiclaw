@@ -52,19 +52,31 @@ idf.py set-target esp32s3
 
 ### 配置
 
-MimiClaw 使用**两层配置**：`mimi_secrets.h` 提供编译时默认值，串口 CLI 可在运行时覆盖。CLI 设置的值存在 NVS Flash 中，优先级高于编译时值。
+MimiClaw 使用**三层配置**：
+- `idf.py menuconfig` 编译时默认值（推荐用于 LLM base_url 和 API key）
+- `mimi_secrets.h` 可选兜底默认值
+- 串口 CLI 运行时覆盖（存入 NVS，优先级最高）
 
 ```bash
 cp main/mimi_secrets.h.example main/mimi_secrets.h
 ```
 
-编辑 `main/mimi_secrets.h`：
+先在 menuconfig 里配置 LLM：
+
+```bash
+idf.py menuconfig
+# MimiClaw -> LLM Base URL
+# MimiClaw -> LLM API Key
+```
+
+可选：编辑 `main/mimi_secrets.h` 作为兜底：
 
 ```c
 #define MIMI_SECRET_WIFI_SSID       "你的WiFi名"
 #define MIMI_SECRET_WIFI_PASS       "你的WiFi密码"
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-#define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
+#define MIMI_SECRET_API_KEY         ""              // 可选兜底：仅当 menuconfig 未配置时使用
+#define MIMI_SECRET_LLM_BASE_URL    ""              // 可选：覆盖/兜底 menuconfig 的 base_url
 #define MIMI_SECRET_SEARCH_KEY      ""              // 可选：Brave Search API key
 #define MIMI_SECRET_PROXY_HOST      "10.0.0.1"      // 可选：代理地址
 #define MIMI_SECRET_PROXY_PORT      "7897"           // 可选：代理端口
@@ -84,6 +96,22 @@ ls /dev/ttyACM*          # Linux
 # USB 转接器：大概率是 /dev/cu.usbmodem11401（macOS）或 /dev/ttyACM0（Linux）
 idf.py -p PORT flash monitor
 ```
+
+### AP 配网（无需硬编码 WiFi）
+
+当没有 WiFi 凭据，或 STA 连接超时时，MimiClaw 会自动启动配网 AP：
+
+- AP 名称：`MimiClaw-Setup`
+- 配网页地址：`http://192.168.4.1`
+- 流程：填写参数 -> 保存 -> 自动重启
+
+配网页面带有美化 UI，并提供附近 WiFi 扫描下拉列表，手机和桌面都可直接使用。
+同时支持一页配置：
+- WiFi SSID/密码
+- Telegram Bot Token
+- LLM Base URL / API Key / Model
+- Search API Key
+- 可选 HTTP 代理 Host/Port
 
 ### 代理配置（国内用户）
 
@@ -111,6 +139,7 @@ mimi> wifi_set MySSID MyPassword   # 换 WiFi
 mimi> set_tg_token 123456:ABC...   # 换 Telegram Bot Token
 mimi> set_api_key sk-ant-api03-... # 换 Anthropic API Key
 mimi> set_model claude-sonnet-4-5-20250929  # 换模型
+mimi> set_base_url https://api.anthropic.com/v1/messages  # 换 LLM endpoint
 mimi> set_proxy 192.168.1.83 7897  # 设置代理
 mimi> clear_proxy                  # 清除代理
 mimi> set_search_key BSA...        # 设置 Brave Search API Key

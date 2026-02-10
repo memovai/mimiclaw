@@ -13,6 +13,7 @@ idf_component_register(
         "cli/serial_cli.c"
         "ota/ota_manager.c"
         "proxy/http_proxy.c"
+        "provision/ap_portal.c"
         "tools/tool_registry.c"
         "tools/tool_web_search.c"
         "tools/tool_get_time.c"

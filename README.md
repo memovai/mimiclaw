@@ -52,19 +52,31 @@ idf.py set-target esp32s3
 
 ### Configure
 
-MimiClaw uses a **two-layer config** system: build-time defaults in `mimi_secrets.h`, with runtime overrides via the serial CLI. CLI values are stored in NVS flash and take priority over build-time values.
+MimiClaw uses a **three-layer config** system:
+- Build-time defaults in `idf.py menuconfig` (recommended for LLM base URL and API key)
+- Optional fallback defaults in `mimi_secrets.h`
+- Runtime overrides via serial CLI (stored in NVS, highest priority)
 
 ```bash
 cp main/mimi_secrets.h.example main/mimi_secrets.h
 ```
 
-Edit `main/mimi_secrets.h`:
+Set LLM endpoint/key in menuconfig:
+
+```bash
+idf.py menuconfig
+# MimiClaw -> LLM Base URL
+# MimiClaw -> LLM API Key
+```
+
+Optionally edit `main/mimi_secrets.h` as fallback:
 
 ```c
 #define MIMI_SECRET_WIFI_SSID       "YourWiFiName"
 #define MIMI_SECRET_WIFI_PASS       "YourWiFiPassword"
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-#define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
+#define MIMI_SECRET_API_KEY         ""              // optional fallback if menuconfig key is empty
+#define MIMI_SECRET_LLM_BASE_URL    ""              // optional override/fallback for menuconfig base URL
 #define MIMI_SECRET_SEARCH_KEY      ""              // optional: Brave Search API key
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"
@@ -85,6 +97,22 @@ ls /dev/ttyACM*          # Linux
 idf.py -p PORT flash monitor
 ```
 
+### AP Provisioning (No Hardcoded WiFi)
+
+If WiFi credentials are missing or STA connection times out, MimiClaw now starts a setup AP automatically:
+
+- AP SSID: `MimiClaw-Setup`
+- Portal URL: `http://192.168.4.1`
+- Flow: fill settings -> save -> auto reboot
+
+The provisioning page includes a styled UI and WiFi scan dropdown for faster onboarding on phone/desktop.
+It now supports a one-page setup for:
+- WiFi SSID/password
+- Telegram bot token
+- LLM base URL / API key / model
+- Search API key
+- Optional HTTP proxy host/port
+
 ### CLI Commands
 
 Connect via serial to configure or debug. **Config commands** let you change settings without recompiling — just plug in a USB cable anywhere.
@@ -96,6 +124,7 @@ mimi> wifi_set MySSID MyPassword   # change WiFi network
 mimi> set_tg_token 123456:ABC...   # change Telegram bot token
 mimi> set_api_key sk-ant-api03-... # change Anthropic API key
 mimi> set_model claude-sonnet-4-5  # change LLM model
+mimi> set_base_url https://api.anthropic.com/v1/messages  # change LLM endpoint
 mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy
 mimi> set_search_key BSA...        # set Brave Search API key

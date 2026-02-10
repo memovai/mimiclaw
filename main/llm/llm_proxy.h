@@ -23,6 +23,11 @@ esp_err_t llm_set_api_key(const char *api_key);
 esp_err_t llm_set_model(const char *model);
 
 /**
+ * Save the full LLM base URL endpoint to NVS.
+ */
+esp_err_t llm_set_base_url(const char *base_url);
+
+/**
  * Send a chat completion request to Anthropic Messages API (streaming).
  *
  * @param system_prompt  System prompt string
