@@ -2,6 +2,7 @@
 #include "tools/tool_web_search.h"
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
+#include "tools/tool_message.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -129,6 +130,20 @@ esp_err_t tool_registry_init(void)
         .execute = tool_list_dir_execute,
     };
     register_tool(&ld);
+
+    /* Register send_message */
+    mimi_tool_t sm = {
+        .name = "send_message",
+        .description = "Send a message to a specific channel and chat. Use this to proactively reach out to a user or deliver information to a specific conversation.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"channel\":{\"type\":\"string\",\"description\":\"Target channel: telegram, websocket, or feishu\"},"
+            "\"chat_id\":{\"type\":\"string\",\"description\":\"Target chat ID for the channel\"},"
+            "\"text\":{\"type\":\"string\",\"description\":\"Message text to send\"}},"
+            "\"required\":[\"channel\",\"chat_id\",\"text\"]}",
+        .execute = tool_message_execute,
+    };
+    register_tool(&sm);
 
     build_tools_json();
 
