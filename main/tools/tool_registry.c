@@ -2,6 +2,7 @@
 #include "tools/tool_web_search.h"
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
+#include "tools/tool_subagent.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -130,7 +131,23 @@ esp_err_t tool_registry_init(void)
     };
     register_tool(&ld);
 
+    /* Register spawn_subagent */
+    mimi_tool_t sa = {
+        .name = "spawn_subagent",
+        .description = "Spawn an independent AI subagent to handle a subtask. The subagent has its own thinking loop with tools (web search, files, time). Use for delegating independent work. Blocks until complete (up to 2 min).",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"task\":{\"type\":\"string\",\"description\":\"The task for the subagent to complete\"},"
+            "\"context\":{\"type\":\"string\",\"description\":\"Optional additional context or instructions\"}},"
+            "\"required\":[\"task\"]}",
+        .execute = tool_subagent_execute,
+    };
+    register_tool(&sa);
+
     build_tools_json();
+
+    /* Init subagent after tools are registered (builds filtered tools JSON) */
+    tool_subagent_init();
 
     ESP_LOGI(TAG, "Tool registry initialized");
     return ESP_OK;
@@ -139,6 +156,12 @@ esp_err_t tool_registry_init(void)
 const char *tool_registry_get_tools_json(void)
 {
     return s_tools_json;
+}
+
+void tool_registry_get_tools(const mimi_tool_t **tools, int *count)
+{
+    *tools = s_tools;
+    *count = s_tool_count;
 }
 
 esp_err_t tool_registry_execute(const char *name, const char *input_json,

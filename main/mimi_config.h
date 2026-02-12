@@ -88,6 +88,15 @@
 #define MIMI_WS_PORT                 18789
 #define MIMI_WS_MAX_CLIENTS          4
 
+/* Subagent */
+#define MIMI_SUBAGENT_STACK          (10 * 1024)
+#define MIMI_SUBAGENT_PRIO           5
+#define MIMI_SUBAGENT_CORE           1
+#define MIMI_SUBAGENT_TIMEOUT_MS     (120 * 1000)
+#define MIMI_SUBAGENT_MAX_TOOL_ITER  5
+#define MIMI_SUBAGENT_CTX_SIZE       (4 * 1024)
+#define MIMI_SUBAGENT_TOOL_BUF       (8 * 1024)
+
 /* Serial CLI */
 #define MIMI_CLI_STACK               (4 * 1024)
 #define MIMI_CLI_PRIO                3

@@ -32,3 +32,11 @@ const char *tool_registry_get_tools_json(void);
  */
 esp_err_t tool_registry_execute(const char *name, const char *input_json,
                                 char *output, size_t output_size);
+
+/**
+ * Get access to the registered tools array.
+ *
+ * @param tools  Output: pointer to the tools array
+ * @param count  Output: number of registered tools
+ */
+void tool_registry_get_tools(const mimi_tool_t **tools, int *count);
