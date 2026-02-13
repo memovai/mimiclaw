@@ -34,6 +34,9 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_API_URL
+#define MIMI_SECRET_API_URL         ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -59,7 +62,7 @@
 #define MIMI_TIMEZONE                "PST8PDT,M3.2.0,M11.1.0"
 
 /* LLM */
-#define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
+#define MIMI_LLM_DEFAULT_MODEL       "claude-sonnet-4-5"
 #define MIMI_LLM_PROVIDER_DEFAULT    "anthropic"
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
@@ -107,5 +110,6 @@
 #define MIMI_NVS_KEY_API_KEY         "api_key"
 #define MIMI_NVS_KEY_MODEL           "model"
 #define MIMI_NVS_KEY_PROVIDER        "provider"
+#define MIMI_NVS_KEY_API_URL         "api_url"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"

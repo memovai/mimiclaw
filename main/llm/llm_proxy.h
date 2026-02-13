@@ -28,6 +28,11 @@ esp_err_t llm_set_provider(const char *provider);
 esp_err_t llm_set_model(const char *model);
 
 /**
+ * Save the API URL to NVS.
+ */
+esp_err_t llm_set_api_url(const char *api_url);
+
+/**
  * Send a chat completion request to the configured LLM API (non-streaming).
  *
  * @param system_prompt  System prompt string
