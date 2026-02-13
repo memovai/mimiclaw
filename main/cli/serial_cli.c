@@ -200,6 +200,7 @@ static int cmd_heap_info(int argc, char **argv)
 static struct {
     struct arg_str *host;
     struct arg_int *port;
+    struct arg_str *type;
     struct arg_end *end;
 } proxy_args;
 
@@ -210,7 +211,9 @@ static int cmd_set_proxy(int argc, char **argv)
         arg_print_errors(stderr, proxy_args.end, argv[0]);
         return 1;
     }
-    http_proxy_set(proxy_args.host->sval[0], (uint16_t)proxy_args.port->ival[0]);
+    http_proxy_set(proxy_args.host->sval[0], 
+                   (uint16_t)proxy_args.port->ival[0],
+                   proxy_args.type ? proxy_args.type->sval[0] : "http");
     printf("Proxy set. Restart to apply.\n");
     return 0;
 }
@@ -402,7 +405,7 @@ esp_err_t serial_cli_init(void)
     esp_console_cmd_register(&model_cmd);
 
     /* set_model_provider */
-    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai)");
+    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai|volcengine)");
     provider_args.end = arg_end(1);
     esp_console_cmd_t provider_cmd = {
         .command = "set_model_provider",
@@ -472,7 +475,8 @@ esp_err_t serial_cli_init(void)
     /* set_proxy */
     proxy_args.host = arg_str1(NULL, NULL, "<host>", "Proxy host/IP");
     proxy_args.port = arg_int1(NULL, NULL, "<port>", "Proxy port");
-    proxy_args.end = arg_end(2);
+    proxy_args.type = arg_str0(NULL, NULL, "<type>", "Proxy type (http/socks5)");
+    proxy_args.end = arg_end(3);
     esp_console_cmd_t proxy_cmd = {
         .command = "set_proxy",
         .help = "Set HTTP proxy (e.g. set_proxy 192.168.1.83 7897)",
