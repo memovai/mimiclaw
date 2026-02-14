@@ -1,0 +1,71 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 获取完整历史以进行差异对比
+
+      - name: Get code diff
+        id: get_diff
+        run: |
+          # 获取 PR 的差异内容并保存到文件
+          git diff origin/${{ github.base_ref }} HEAD > pr_diff.txt
+
+      - name: Call Volcengine LLM for Review
+        env:
+          VOLC_API_KEY: ${{ secrets.VOLCENGINE_API_KEY}}
+          # 替换为你的推理接入点 ID
+          ENDPOINT_ID: "ark-code-latest" 
+        run: |
+          # 使用 Python 脚本或 Curl 调用火山引擎接口
+          # 这里推荐一个简单的 Python 脚本处理逻辑
+          python3 - <<EOF
+          import os
+          import requests
+          import json
+
+          diff_content = open("pr_diff.txt", "r").read()
+          if not diff_content.strip():
+              print("No changes detected.")
+              exit(0)
+
+          url = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+          headers = {
+              "Content-Type": "application/json",
+              "Authorization": f"Bearer {os.getenv('VOLC_API_KEY')}"
+          }
+          
+          payload = {
+              "model": os.getenv("ENDPOINT_ID"),
+              "messages": [
+                  {"role": "system", "content": "你是一位资深的架构师。请审阅以下代码差异(diff)，指出潜在的 Bug、性能问题或代码规范问题，并给出改进建议。"},
+                  {"role": "user", "content": f"代码差异如下：\n\n{diff_content}"}
+              ]
+          }
+
+          response = requests.post(url, json=payload, headers=headers)
+          result = response.json()
+          review_comment = result['choices'][0]['message']['content']
+          
+          # 将审阅意见保存，供下一步使用
+          with open("review.md", "w") as f:
+              f.write("### 🤖 火山引擎 AI 代码审查建议\n\n")
+              f.write(review_comment)
+          EOF
+
+      - name: Post comment to PR
+        uses: mshick/add-pr-comment@v2
+        with:
+          message-path: review.md
