@@ -55,7 +55,7 @@ jobs:
 
           # 火山引擎 API 配置
           # 注意：API 地址通常为标准 v3 路径，根据您的模型部署路径微调
-          url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+          url = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
           headers = {
               "Content-Type": "application/json",
               "Authorization": f"Bearer {os.getenv('VOLC_API_KEY')}"
