@@ -21,6 +21,7 @@
 #include "cli/serial_cli.h"
 #include "proxy/http_proxy.h"
 #include "tools/tool_registry.h"
+#include "audio/audio_hal.h"
 
 static const char *TAG = "mimi";
 
@@ -99,6 +100,9 @@ void app_main(void)
     ESP_ERROR_CHECK(init_nvs());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(init_spiffs());
+
+    /* Initialize hardware peripherals */
+    ESP_ERROR_CHECK(audio_hal_init());
 
     /* Initialize subsystems */
     ESP_ERROR_CHECK(message_bus_init());

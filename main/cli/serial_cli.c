@@ -7,9 +7,17 @@
 #include "memory/session_mgr.h"
 #include "proxy/http_proxy.h"
 #include "tools/tool_web_search.h"
+#include "audio/audio_player.h"
+#include "audio/test_audio.h"
+#include "display/display_driver.h"
+#include "input/button_input.h"
+#include "voice/stt_client.h"
+#include "voice/tts_client.h"
+#include "audio/audio_hal.h"
 
 #include <string.h>
 #include <stdio.h>
+#include "freertos/FreeRTOS.h"
 #include "esp_log.h"
 #include "esp_console.h"
 #include "esp_system.h"
@@ -335,6 +343,238 @@ static int cmd_config_reset(int argc, char **argv)
     return 0;
 }
 
+/* --- play_tone command --- */
+static struct {
+    struct arg_int *freq;
+    struct arg_int *ms;
+    struct arg_end *end;
+} play_tone_args;
+
+static int cmd_play_tone(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&play_tone_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, play_tone_args.end, argv[0]);
+        return 1;
+    }
+    int freq = play_tone_args.freq->ival[0];
+    int ms = play_tone_args.ms->ival[0];
+    if (freq < 20 || freq > 20000) {
+        printf("Frequency must be 20-20000 Hz\n");
+        return 1;
+    }
+    if (ms < 10 || ms > 30000) {
+        printf("Duration must be 10-30000 ms\n");
+        return 1;
+    }
+    printf("Playing %d Hz for %d ms (repeating 10x, Ctrl+C to stop)...\n", freq, ms);
+    for (int i = 0; i < 10; i++) {
+        printf("  [%d/10]\n", i + 1);
+        esp_err_t ret = audio_player_play_tone((uint32_t)freq, (uint32_t)ms);
+        if (ret != ESP_OK) {
+            printf("Play tone failed: %s\n", esp_err_to_name(ret));
+            return 1;
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    printf("Done.\n");
+    return 0;
+}
+
+/* --- audio_test command --- */
+static int cmd_audio_test(int argc, char **argv)
+{
+    audio_test_run();
+    return 0;
+}
+
+/* --- display_test command --- */
+static int cmd_display_test(int argc, char **argv)
+{
+    printf("Initializing display...\n");
+    esp_err_t ret = display_init();
+    if (ret != ESP_OK) {
+        printf("Display init failed: %s\n", esp_err_to_name(ret));
+        return 1;
+    }
+    printf("Cycling colors (2s each)...\n");
+    const struct { const char *name; uint16_t color; } colors[] = {
+        {"RED",    DISPLAY_COLOR_RED},
+        {"GREEN",  DISPLAY_COLOR_GREEN},
+        {"BLUE",   DISPLAY_COLOR_BLUE},
+        {"YELLOW", DISPLAY_COLOR_YELLOW},
+        {"WHITE",  DISPLAY_COLOR_WHITE},
+        {"BLACK",  DISPLAY_COLOR_BLACK},
+    };
+    for (int i = 0; i < 6; i++) {
+        printf("  %s\n", colors[i].name);
+        display_fill_color(colors[i].color);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    printf("Display test done.\n");
+    return 0;
+}
+
+/* --- button_test command --- */
+static void button_test_cb(button_event_t event)
+{
+    const char *names[] = {"WAKE_PRESS", "WAKE_RELEASE", "MUTE_PRESS", "VOLUME_PRESS"};
+    printf(">>> BUTTON EVENT: %s\n", names[event]);
+}
+
+static int cmd_button_test(int argc, char **argv)
+{
+    static bool inited = false;
+    if (!inited) {
+        esp_err_t ret = button_input_init(button_test_cb);
+        if (ret != ESP_OK) {
+            printf("Button init failed: %s\n", esp_err_to_name(ret));
+            return 1;
+        }
+        inited = true;
+    }
+    printf("Buttons active — press any button (events print in real-time)\n");
+    printf("Wake=GPIO0 (top), Mute=GPIO39 (left), Volume=GPIO40 (right)\n");
+    return 0;
+}
+
+/* --- stt_test command: record N seconds, transcribe via faster-whisper --- */
+static struct {
+    struct arg_int *seconds;
+    struct arg_end *end;
+} stt_test_args;
+
+static int cmd_stt_test(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&stt_test_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, stt_test_args.end, argv[0]);
+        return 1;
+    }
+
+    int secs = stt_test_args.seconds->ival[0];
+    if (secs < 1) secs = 1;
+    if (secs > 10) secs = 10;
+
+    esp_codec_dev_handle_t in_dev = audio_hal_get_input_dev();
+    if (!in_dev) {
+        printf("Mic not initialized\n");
+        return 1;
+    }
+
+    /* Record mono 16kHz 16-bit into PSRAM */
+    size_t total_bytes = MIMI_AUDIO_SAMPLE_RATE * sizeof(int16_t) * secs;
+    int16_t *pcm_buf = heap_caps_malloc(total_bytes, MALLOC_CAP_SPIRAM);
+    if (!pcm_buf) {
+        printf("Failed to allocate %d bytes for recording\n", (int)total_bytes);
+        return 1;
+    }
+
+    printf("Recording %d seconds... speak now!\n", secs);
+
+    /* Read mic via esp_codec_dev — reads stereo (2ch), we take left channel */
+    const int chunk_frames = 512;
+    const int stereo_chunk_bytes = chunk_frames * 2 * sizeof(int16_t);
+    int16_t *stereo_buf = malloc(stereo_chunk_bytes);
+    if (!stereo_buf) {
+        free(pcm_buf);
+        printf("malloc failed\n");
+        return 1;
+    }
+
+    size_t mono_written = 0;
+    size_t total_samples = total_bytes / sizeof(int16_t);
+    while (mono_written < total_samples) {
+        size_t frames_needed = total_samples - mono_written;
+        if (frames_needed > (size_t)chunk_frames) frames_needed = chunk_frames;
+
+        int ret = esp_codec_dev_read(in_dev, stereo_buf, frames_needed * 2 * sizeof(int16_t));
+        if (ret != 0) {
+            printf("Mic read error: %d\n", ret);
+            break;
+        }
+
+        /* Extract left channel (every other sample) */
+        for (size_t i = 0; i < frames_needed; i++) {
+            pcm_buf[mono_written + i] = stereo_buf[i * 2];
+        }
+        mono_written += frames_needed;
+    }
+    free(stereo_buf);
+
+    size_t recorded_bytes = mono_written * sizeof(int16_t);
+    printf("Recorded %d samples (%d bytes, %.1f sec)\n",
+           (int)mono_written, (int)recorded_bytes,
+           (float)mono_written / MIMI_AUDIO_SAMPLE_RATE);
+
+    /* Transcribe */
+    printf("Sending to STT server...\n");
+    char text[512] = {0};
+    esp_err_t err = stt_transcribe(pcm_buf, recorded_bytes, text, sizeof(text));
+    free(pcm_buf);
+
+    if (err != ESP_OK) {
+        printf("STT failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+
+    printf("Transcription: \"%s\"\n", text);
+    return 0;
+}
+
+/* --- tts_test command: synthesize text and play through speaker --- */
+static struct {
+    struct arg_str *text;
+    struct arg_end *end;
+} tts_test_args;
+
+static int cmd_tts_test(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&tts_test_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, tts_test_args.end, argv[0]);
+        return 1;
+    }
+
+    const char *text = tts_test_args.text->sval[0];
+    printf("Synthesizing: \"%s\"\n", text);
+
+    /* Allocate buffer in PSRAM for audio response (up to 512KB) */
+    const size_t buf_cap = 512 * 1024;
+    uint8_t *wav_buf = heap_caps_malloc(buf_cap, MALLOC_CAP_SPIRAM);
+    if (!wav_buf) {
+        printf("Failed to allocate TTS buffer\n");
+        return 1;
+    }
+
+    size_t wav_len = 0;
+    esp_err_t err = tts_synthesize(text, wav_buf, buf_cap, &wav_len);
+    if (err != ESP_OK) {
+        printf("TTS failed: %s\n", esp_err_to_name(err));
+        free(wav_buf);
+        return 1;
+    }
+
+    printf("Got %d bytes audio, playing...\n", (int)wav_len);
+
+    /* Try to play as WAV first, fall back to raw PCM */
+    if (wav_len >= 44 && memcmp(wav_buf, "RIFF", 4) == 0) {
+        err = audio_player_play_wav(wav_buf, wav_len);
+    } else {
+        /* Assume raw 16-bit mono PCM */
+        err = audio_player_play_pcm((const int16_t *)wav_buf, wav_len);
+    }
+    free(wav_buf);
+
+    if (err != ESP_OK) {
+        printf("Playback failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+
+    printf("TTS playback complete\n");
+    return 0;
+}
+
 /* --- restart command --- */
 static int cmd_restart(int argc, char **argv)
 {
@@ -542,6 +782,64 @@ esp_err_t serial_cli_init(void)
         .func = &cmd_restart,
     };
     esp_console_cmd_register(&restart_cmd);
+
+    /* play_tone */
+    play_tone_args.freq = arg_int1(NULL, NULL, "<freq>", "Frequency in Hz");
+    play_tone_args.ms = arg_int1(NULL, NULL, "<ms>", "Duration in ms");
+    play_tone_args.end = arg_end(2);
+    esp_console_cmd_t play_tone_cmd = {
+        .command = "play_tone",
+        .help = "Play a sine wave tone (e.g. play_tone 440 2000)",
+        .func = &cmd_play_tone,
+        .argtable = &play_tone_args,
+    };
+    esp_console_cmd_register(&play_tone_cmd);
+
+    /* audio_test */
+    esp_console_cmd_t audio_test_cmd = {
+        .command = "audio_test",
+        .help = "Run audio debug test (tone + mic loopback)",
+        .func = &cmd_audio_test,
+    };
+    esp_console_cmd_register(&audio_test_cmd);
+
+    /* display_test */
+    esp_console_cmd_t display_test_cmd = {
+        .command = "display_test",
+        .help = "Initialize display and cycle through colors",
+        .func = &cmd_display_test,
+    };
+    esp_console_cmd_register(&display_test_cmd);
+
+    /* button_test */
+    esp_console_cmd_t button_test_cmd = {
+        .command = "button_test",
+        .help = "Initialize buttons and listen for press events",
+        .func = &cmd_button_test,
+    };
+    esp_console_cmd_register(&button_test_cmd);
+
+    /* stt_test */
+    stt_test_args.seconds = arg_int1(NULL, NULL, "<seconds>", "Recording duration (1-10)");
+    stt_test_args.end = arg_end(1);
+    esp_console_cmd_t stt_test_cmd = {
+        .command = "stt_test",
+        .help = "Record audio and transcribe via faster-whisper (e.g. stt_test 3)",
+        .func = &cmd_stt_test,
+        .argtable = &stt_test_args,
+    };
+    esp_console_cmd_register(&stt_test_cmd);
+
+    /* tts_test */
+    tts_test_args.text = arg_str1(NULL, NULL, "<text>", "Text to synthesize");
+    tts_test_args.end = arg_end(1);
+    esp_console_cmd_t tts_test_cmd = {
+        .command = "tts_test",
+        .help = "Synthesize text to speech and play (e.g. tts_test \"Hello world\")",
+        .func = &cmd_tts_test,
+        .argtable = &tts_test_args,
+    };
+    esp_console_cmd_register(&tts_test_cmd);
 
     /* Start REPL */
     ESP_ERROR_CHECK(esp_console_start_repl(repl));

@@ -34,6 +34,18 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_STT_HOST
+#define MIMI_SECRET_STT_HOST        "192.168.1.100"
+#endif
+#ifndef MIMI_SECRET_STT_PORT
+#define MIMI_SECRET_STT_PORT        "8000"
+#endif
+#ifndef MIMI_SECRET_STT_MODEL
+#define MIMI_SECRET_STT_MODEL       "Systran/faster-whisper-tiny"
+#endif
+#ifndef MIMI_SECRET_TTS_MODEL
+#define MIMI_SECRET_TTS_MODEL       "pyttsx3"
+#endif
 #ifndef MIMI_SECRET_API_URL
 #define MIMI_SECRET_API_URL         ""
 #endif
@@ -102,6 +114,53 @@
 #define MIMI_NVS_LLM                 "llm_config"
 #define MIMI_NVS_PROXY               "proxy_config"
 #define MIMI_NVS_SEARCH              "search_config"
+
+/* ─── Hardware Pin Assignments (xingzhi-cube 1.83" 2mic board) ─── */
+
+/* I2C Bus (shared: ES8311 DAC + ES7210 ADC) */
+#define MIMI_I2C_NUM             I2C_NUM_0
+#define MIMI_I2C_SDA             GPIO_NUM_12
+#define MIMI_I2C_SCL             GPIO_NUM_11
+#define MIMI_I2C_FREQ_HZ         400000
+
+/* I2S Bus (shared: speaker TX + mic RX) */
+#define MIMI_I2S_NUM             I2S_NUM_0
+#define MIMI_I2S_MCLK            GPIO_NUM_5
+#define MIMI_I2S_BCLK            GPIO_NUM_15
+#define MIMI_I2S_LRCLK           GPIO_NUM_16
+#define MIMI_I2S_DOUT            GPIO_NUM_6     /* ESP32 → ES8311 speaker DAC */
+#define MIMI_I2S_DIN             GPIO_NUM_7     /* ES7210 mic ADC → ESP32 */
+
+/* Speaker */
+#define MIMI_SPEAKER_EN          GPIO_NUM_4     /* PA enable, active high */
+
+/* Audio parameters */
+#define MIMI_AUDIO_SAMPLE_RATE   16000
+#define MIMI_AUDIO_BITS          16
+#define MIMI_AUDIO_CHANNELS      1              /* mono for STT/TTS */
+
+/* I2S DMA */
+#define MIMI_I2S_DMA_DESC_NUM    6
+#define MIMI_I2S_DMA_FRAME_NUM   240
+
+/* Display (1.83" SPI LCD, ST7789V, 284x240) */
+#define MIMI_LCD_SPI_HOST        SPI2_HOST
+#define MIMI_LCD_CLK             GPIO_NUM_9
+#define MIMI_LCD_MOSI            GPIO_NUM_10
+#define MIMI_LCD_CS              GPIO_NUM_14
+#define MIMI_LCD_DC              GPIO_NUM_8
+#define MIMI_LCD_RST             GPIO_NUM_18
+#define MIMI_LCD_BL              GPIO_NUM_13
+#define MIMI_LCD_WIDTH           284
+#define MIMI_LCD_HEIGHT          240
+
+/* Buttons */
+#define MIMI_BTN_WAKE            GPIO_NUM_0     /* Top: wake / push-to-talk */
+#define MIMI_BTN_MUTE            GPIO_NUM_39    /* Left: mute toggle */
+#define MIMI_BTN_VOLUME          GPIO_NUM_40    /* Right: volume cycle */
+
+/* WS2812 LED */
+#define MIMI_LED_PIN             GPIO_NUM_48
 
 /* NVS Keys */
 #define MIMI_NVS_KEY_SSID            "ssid"
