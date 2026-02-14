@@ -153,22 +153,26 @@ esp_err_t llm_proxy_init(void)
         char tmp[256] = {0};
         size_t len = sizeof(tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
-            safe_copy(s_api_key, sizeof(s_api_key), tmp);
+            strncpy(s_api_key, tmp, sizeof(s_api_key) - 1);
+            s_api_key[sizeof(s_api_key) - 1] = '\0';
         }
         len = sizeof(tmp);
         memset(tmp, 0, sizeof(tmp));
         if (nvs_get_str(nvs, MIMI_NVS_KEY_MODEL, tmp, &len) == ESP_OK && tmp[0]) {
-            safe_copy(s_model, sizeof(s_model), tmp);
+            strncpy(s_model, tmp, sizeof(s_model) - 1);
+            s_model[sizeof(s_model) - 1] = '\0';
         }
         len = sizeof(tmp);
         memset(tmp, 0, sizeof(tmp));
         if (nvs_get_str(nvs, MIMI_NVS_KEY_PROVIDER, tmp, &len) == ESP_OK && tmp[0]) {
-            safe_copy(s_provider, sizeof(s_provider), tmp);
+            strncpy(s_provider, tmp, sizeof(s_provider) - 1);
+            s_provider[sizeof(s_provider) - 1] = '\0';
         }
         len = sizeof(tmp);
         memset(tmp, 0, sizeof(tmp));
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_URL, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_api_url, tmp, sizeof(s_api_url) - 1);
+            s_api_url[sizeof(s_api_url) - 1] = '\0';
         }
         nvs_close(nvs);
     }
