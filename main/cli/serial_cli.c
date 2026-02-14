@@ -1,5 +1,6 @@
 #include "serial_cli.h"
 #include "mimi_config.h"
+#include "mimi_secrets.h"
 #include "wifi/wifi_manager.h"
 #include "telegram/telegram_bot.h"
 #include "llm/llm_proxy.h"
@@ -244,6 +245,42 @@ static int cmd_set_search_key(int argc, char **argv)
     return 0;
 }
 
+/* --- set_volcengine_key command --- */
+static struct {
+    struct arg_str *key;
+    struct arg_end *end;
+} volcengine_key_args;
+
+static int cmd_set_volcengine_key(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&volcengine_key_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, volcengine_key_args.end, argv[0]);
+        return 1;
+    }
+    tool_web_search_set_volcengine_key(volcengine_key_args.key->sval[0]);
+    printf("Volcengine API key saved.\n");
+    return 0;
+}
+
+/* --- set_volcengine_model command --- */
+static struct {
+    struct arg_str *model;
+    struct arg_end *end;
+} volcengine_model_args;
+
+static int cmd_set_volcengine_model(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&volcengine_model_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, volcengine_model_args.end, argv[0]);
+        return 1;
+    }
+    tool_web_search_set_volcengine_model(volcengine_model_args.model->sval[0]);
+    printf("Volcengine model saved.\n");
+    return 0;
+}
+
 /* --- wifi_scan command --- */
 static int cmd_wifi_scan(int argc, char **argv)
 {
@@ -297,6 +334,8 @@ static int cmd_config_show(int argc, char **argv)
     print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
     print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
+    print_config("Volcengine Key", MIMI_NVS_LLM, MIMI_NVS_KEY_API_KEY, MIMI_SECRET_VOLCENGINE_API_KEY, true);
+    print_config("Volcengine Model", MIMI_NVS_LLM, MIMI_NVS_KEY_MODEL, MIMI_SECRET_VOLCENGINE_MODEL, false);
     printf("=============================\n");
     return 0;
 }
@@ -471,6 +510,28 @@ esp_err_t serial_cli_init(void)
         .argtable = &search_key_args,
     };
     esp_console_cmd_register(&search_key_cmd);
+
+    /* set_volcengine_key */
+    volcengine_key_args.key = arg_str1(NULL, NULL, "<key>", "Volcengine API key");
+    volcengine_key_args.end = arg_end(1);
+    esp_console_cmd_t volcengine_key_cmd = {
+        .command = "set_volcengine_key",
+        .help = "Set Volcengine API key for web search fallback",
+        .func = &cmd_set_volcengine_key,
+        .argtable = &volcengine_key_args,
+    };
+    esp_console_cmd_register(&volcengine_key_cmd);
+
+    /* set_volcengine_model */
+    volcengine_model_args.model = arg_str1(NULL, NULL, "<model>", "Volcengine model name");
+    volcengine_model_args.end = arg_end(1);
+    esp_console_cmd_t volcengine_model_cmd = {
+        .command = "set_volcengine_model",
+        .help = "Set Volcengine model for web search",
+        .func = &cmd_set_volcengine_model,
+        .argtable = &volcengine_model_args,
+    };
+    esp_console_cmd_register(&volcengine_model_cmd);
 
     /* set_proxy */
     proxy_args.host = arg_str1(NULL, NULL, "<host>", "Proxy host/IP");

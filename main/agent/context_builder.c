@@ -1,6 +1,7 @@
 #include "context_builder.h"
 #include "mimi_config.h"
 #include "memory/memory_store.h"
+#include "tools/tool_web_search.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -71,6 +72,18 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
     char recent_buf[4096];
     if (memory_read_recent(recent_buf, sizeof(recent_buf), 3) == ESP_OK && recent_buf[0]) {
         off += snprintf(buf + off, size - off, "\n## Recent Notes\n\n%s\n", recent_buf);
+    }
+
+    /* Web search status */
+    if (tool_web_search_is_available()) {
+        off += snprintf(buf + off, size - off,
+            "\n## System Status\n\n"
+            "- Web search is AVAILABLE via %s. You CAN search the web for current information.\n",
+            tool_web_search_get_provider());
+    } else {
+        off += snprintf(buf + off, size - off,
+            "\n## System Status\n\n"
+            "- Web search is NOT available. Do NOT attempt to use web_search tool.\n");
     }
 
     ESP_LOGI(TAG, "System prompt built: %d bytes", (int)off);

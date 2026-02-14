@@ -27,7 +27,7 @@ static char     s_proxy_type[8] = "http"; // "http" or "socks5"
 
 esp_err_t http_proxy_init(void)
 {
-    /* Start with build-time defaults */
+    /* Start with build-time defaults (always configure global proxy) */
     if (MIMI_SECRET_PROXY_HOST[0] != '\0' && MIMI_SECRET_PROXY_PORT[0] != '\0') {
         strncpy(s_proxy_host, MIMI_SECRET_PROXY_HOST, sizeof(s_proxy_host) - 1);
         s_proxy_port = (uint16_t)atoi(MIMI_SECRET_PROXY_PORT);

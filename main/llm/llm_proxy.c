@@ -2,6 +2,7 @@
 #include "llm_provider.h"
 #include "provider/provider.h"
 #include "mimi_config.h"
+#include "mimi_secrets.h"
 #include "proxy/http_proxy.h"
 
 #include <string.h>
@@ -94,10 +95,13 @@ static bool provider_is_volcengine(void)
 
 static const char *llm_api_url(void)
 {
+    static char url_buf[256];
     if (provider_is_openai()) {
-        return MIMI_OPENAI_API_URL;
+        snprintf(url_buf, sizeof(url_buf), "%s%s", MIMI_VOLCENGINE_CODING_BASE_URL, MIMI_VOLCENGINE_OPENAI_CODING_PATH);
+        return url_buf;
     } else if (provider_is_volcengine()) {
-        return MIMI_VOLCENGINE_API_URL;
+        snprintf(url_buf, sizeof(url_buf), "%s%s", MIMI_VOLCENGINE_API_URL, MIMI_VOLCENGINE_API_PATH);
+        return url_buf;
     }
     return MIMI_LLM_API_URL;
 }
@@ -105,7 +109,8 @@ static const char *llm_api_url(void)
 static const char *llm_api_host(void)
 {
     if (provider_is_openai()) {
-        return "api.openai.com";
+        //return "api.openai.com";
+        return "ark.cn-beijing.volces.com";
     } else if (provider_is_volcengine()) {
         return "ark.cn-beijing.volces.com";
     }
@@ -115,7 +120,7 @@ static const char *llm_api_host(void)
 static const char *llm_api_path(void)
 {
     if (provider_is_openai()) {
-        return "/v1/chat/completions";
+        return MIMI_VOLCENGINE_OPENAI_CODING_PATH;
     } else if (provider_is_volcengine()) {
         return MIMI_VOLCENGINE_API_PATH;
     }
@@ -290,9 +295,17 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
 
 /* ── Shared HTTP dispatch ─────────────────────────────────────── */
 
+static bool llm_use_proxy(void)
+{
+    if (strcmp(MIMI_SECRET_LLM_USE_PROXY, "no") == 0) {
+        return false;
+    }
+    return http_proxy_is_enabled();
+}
+
 static esp_err_t llm_http_call(const char *post_data, resp_buf_t *rb, int *out_status)
 {
-    if (http_proxy_is_enabled()) {
+    if (llm_use_proxy()) {
         return llm_http_via_proxy(post_data, rb, out_status);
     } else {
         return llm_http_direct(post_data, rb, out_status);
@@ -590,8 +603,11 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
     }
 
     if (status != 200) {
-        ESP_LOGE(TAG, "API returned status %d", status);
-        snprintf(response_buf, buf_size, "API error (HTTP %d): %.200s",
+        ESP_LOGE(TAG, "API returned status %d, response len=%d", status, (int)(rb.data ? rb.len : 0));
+        if (rb.data && rb.len > 0) {
+            ESP_LOGE(TAG, "Response: %.1000s", rb.data);
+        }
+        snprintf(response_buf, buf_size, "API error (HTTP %d): %.1000s",
                  status, rb.data ? rb.data : "");
         resp_buf_free(&rb);
         return ESP_FAIL;
@@ -721,6 +737,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
     ESP_LOGI(TAG, "Calling LLM API with tools (provider: %s, model: %s, body: %d bytes)",
              s_provider, s_model, (int)strlen(post_data));
+    ESP_LOGD(TAG, "Request body: %.500s", post_data);
 
     /* HTTP call */
     resp_buf_t rb;
@@ -740,12 +757,16 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     }
 
     if (status != 200) {
-        ESP_LOGE(TAG, "API error %d: %.500s", status, rb.data ? rb.data : "");
+        ESP_LOGE(TAG, "API error %d, response len=%d", status, (int)(rb.data ? rb.len : 0));
+        if (rb.data && rb.len > 0) {
+            ESP_LOGE(TAG, "Response: %.1500s", rb.data);
+        }
         resp_buf_free(&rb);
         return ESP_FAIL;
     }
 
     /* Parse full JSON response */
+    ESP_LOGD(TAG, "API response: %.500s", rb.data);
     cJSON *root = cJSON_Parse(rb.data);
     resp_buf_free(&rb);
 

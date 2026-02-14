@@ -66,6 +66,9 @@
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
 #define MIMI_VOLCENGINE_API_URL      "https://ark.cn-beijing.volces.com"
 #define MIMI_VOLCENGINE_API_PATH     "/api/v3/responses"
+#define MIMI_VOLCENGINE_CODING_BASE_URL   "https://ark.cn-beijing.volces.com"
+#define MIMI_VOLCENGINE_ANTHROPIC_CODING_PATH  "/api/coding/messages"
+#define MIMI_VOLCENGINE_OPENAI_CODING_PATH    "/api/coding/v3/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 
