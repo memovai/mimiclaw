@@ -905,6 +905,11 @@ esp_err_t llm_set_provider(const char *provider)
 
 esp_err_t llm_set_api_url(const char *api_url)
 {
+    if (!api_url || strlen(api_url) >= sizeof(s_api_url)) {
+        ESP_LOGW(TAG, "Invalid API URL");
+        return ESP_ERR_INVALID_ARG;
+    }
+
     nvs_handle_t nvs;
     ESP_ERROR_CHECK(nvs_open(MIMI_NVS_LLM, NVS_READWRITE, &nvs));
     ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_API_URL, api_url));
