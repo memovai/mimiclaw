@@ -6,6 +6,7 @@
 
 /* Channel identifiers */
 #define MIMI_CHAN_TELEGRAM   "telegram"
+#define MIMI_CHAN_FEISHU     "feishu"
 #define MIMI_CHAN_WEBSOCKET  "websocket"
 #define MIMI_CHAN_CLI        "cli"
 

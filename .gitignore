@@ -35,9 +35,22 @@ main/mimi_secrets.h
 *.pyc
 *.bin
 
+# Documentation (generated)
+BUILD_TEST_GUIDE.md
+COMPILE_TEST_REPORT.md
+CURRENT_STATUS.md
+FEISHU_INTEGRATION_SUMMARY.md
+QUICK_START.md
+QWEN_INTEGRATION_PLAN.md
+QWEN_INTEGRATION_COMPLETE.md
+build_test.sh
+build_and_integrate_qwen.sh
+verify_integration.sh
+
 # Reference repos
 nanobot/
 
 # OS
 .DS_Store
 Thumbs.db
+.venv/
