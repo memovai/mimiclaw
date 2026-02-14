@@ -25,6 +25,7 @@ mimi_secrets.h
 *.swp
 *.swo
 *~
+.claude
 
 # Environment
 .env

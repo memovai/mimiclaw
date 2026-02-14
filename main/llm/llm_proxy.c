@@ -16,7 +16,7 @@ static const char *TAG = "llm";
 static char s_api_key[128] = {0};
 static char s_model[64] = MIMI_LLM_DEFAULT_MODEL;
 static char s_provider[16] = MIMI_LLM_PROVIDER_DEFAULT;
-static char s_api_url[256] = {0};
+static char s_api_url[512] = {0};
 
 static void safe_copy(char *dst, size_t dst_size, const char *src)
 {
@@ -74,11 +74,15 @@ static void parse_api_url(const char *url, char *host, size_t host_sz, int *port
 {
     *port = 443;
     host[0] = '\0';
-    strncpy(path, "/", path_sz - 1);
+    snprintf(path, path_sz, "/");
+
+    if (!url || url[0] == '\0') return;
 
     const char *p = url;
     if (strncmp(p, "https://", 8) == 0) { p += 8; *port = 443; }
     else if (strncmp(p, "http://", 7) == 0) { p += 7; *port = 80; }
+
+    if (p[0] == '\0') return;
 
     const char *slash = strchr(p, '/');
     const char *colon = strchr(p, ':');
@@ -95,12 +99,11 @@ static void parse_api_url(const char *url, char *host, size_t host_sz, int *port
         memcpy(host, p, hlen);
         host[hlen] = '\0';
     } else {
-        strncpy(host, p, host_sz - 1);
+        snprintf(host, host_sz, "%s", p);
     }
 
     if (slash) {
-        strncpy(path, slash, path_sz - 1);
-        path[path_sz - 1] = '\0';
+        snprintf(path, path_sz, "%s", slash);
     }
 }
 
@@ -150,29 +153,25 @@ esp_err_t llm_proxy_init(void)
     /* NVS overrides take highest priority (set via CLI) */
     nvs_handle_t nvs;
     if (nvs_open(MIMI_NVS_LLM, NVS_READONLY, &nvs) == ESP_OK) {
-        char tmp[256] = {0};
+        char tmp[512] = {0};
         size_t len = sizeof(tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_api_key, tmp, sizeof(s_api_key) - 1);
-            s_api_key[sizeof(s_api_key) - 1] = '\0';
+            safe_copy(s_api_key, sizeof(s_api_key), tmp);
         }
         len = sizeof(tmp);
         memset(tmp, 0, sizeof(tmp));
         if (nvs_get_str(nvs, MIMI_NVS_KEY_MODEL, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_model, tmp, sizeof(s_model) - 1);
-            s_model[sizeof(s_model) - 1] = '\0';
+            safe_copy(s_model, sizeof(s_model), tmp);
         }
         len = sizeof(tmp);
         memset(tmp, 0, sizeof(tmp));
         if (nvs_get_str(nvs, MIMI_NVS_KEY_PROVIDER, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_provider, tmp, sizeof(s_provider) - 1);
-            s_provider[sizeof(s_provider) - 1] = '\0';
+            safe_copy(s_provider, sizeof(s_provider), tmp);
         }
         len = sizeof(tmp);
         memset(tmp, 0, sizeof(tmp));
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_URL, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_api_url, tmp, sizeof(s_api_url) - 1);
-            s_api_url[sizeof(s_api_url) - 1] = '\0';
+            safe_copy(s_api_url, sizeof(s_api_url), tmp);
         }
         nvs_close(nvs);
     }
@@ -358,8 +357,7 @@ static void extract_text_openai(cJSON *root, char *buf, size_t size)
     if (!message) return;
     cJSON *content = cJSON_GetObjectItem(message, "content");
     if (!content || !cJSON_IsString(content)) return;
-    strncpy(buf, content->valuestring, size - 1);
-    buf[size - 1] = '\0';
+    snprintf(buf, size, "%s", content->valuestring);
 }
 
 static cJSON *convert_tools_openai(const char *tools_json)
@@ -760,13 +758,13 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                         cJSON *id = cJSON_GetObjectItem(tc, "id");
                         cJSON *func = cJSON_GetObjectItem(tc, "function");
                         if (id && cJSON_IsString(id)) {
-                            strncpy(call->id, id->valuestring, sizeof(call->id) - 1);
+                            snprintf(call->id, sizeof(call->id), "%s", id->valuestring);
                         }
                         if (func) {
                             cJSON *name = cJSON_GetObjectItem(func, "name");
                             cJSON *args = cJSON_GetObjectItem(func, "arguments");
                             if (name && cJSON_IsString(name)) {
-                                strncpy(call->name, name->valuestring, sizeof(call->name) - 1);
+                                snprintf(call->name, sizeof(call->name), "%s", name->valuestring);
                             }
                             if (args && cJSON_IsString(args)) {
                                 call->input = strdup(args->valuestring);
@@ -833,12 +831,12 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
                 cJSON *id = cJSON_GetObjectItem(block, "id");
                 if (id && cJSON_IsString(id)) {
-                    strncpy(call->id, id->valuestring, sizeof(call->id) - 1);
+                    snprintf(call->id, sizeof(call->id), "%s", id->valuestring);
                 }
 
                 cJSON *name = cJSON_GetObjectItem(block, "name");
                 if (name && cJSON_IsString(name)) {
-                    strncpy(call->name, name->valuestring, sizeof(call->name) - 1);
+                    snprintf(call->name, sizeof(call->name), "%s", name->valuestring);
                 }
 
                 cJSON *input = cJSON_GetObjectItem(block, "input");
