@@ -177,7 +177,8 @@ esp_err_t llm_proxy_init(void)
     }
 
     if (s_api_key[0]) {
-        ESP_LOGI(TAG, "LLM proxy initialized (provider: %s, model: %s, url: %s)", s_provider, s_model, llm_api_url());
+        ESP_LOGI(TAG, "LLM proxy initialized (provider: %s, model: %s, url: %s)",
+                 s_provider, s_model, s_api_url[0] ? "<custom>" : llm_api_url());
     } else {
         ESP_LOGW(TAG, "No API key. Use CLI: set_api_key <KEY>");
     }
