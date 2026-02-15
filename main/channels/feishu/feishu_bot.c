@@ -26,8 +26,8 @@ static const char *TAG = "feishu";
 #define FEISHU_WEBHOOK_MAX_BODY 4096
 #define FEISHU_API_MAX_RETRIES  2
 
-/* Standard success response for Feishu event callback */
-#define FEISHU_OK_RESPONSE      "{\"code\":0,\"msg\":\"success\"}"
+/* Standard ACK response for Feishu event callback */
+#define FEISHU_EVENT_ACK_RESPONSE  "{\"code\":0,\"msg\":\"success\"}"
 
 static char s_app_id[64] = MIMI_SECRET_FEISHU_APP_ID;
 static char s_app_secret[128] = MIMI_SECRET_FEISHU_APP_SECRET;
@@ -168,9 +168,8 @@ static char *feishu_api_call(const char *url, const char *method, const char *po
 
     for (int attempt = 0; attempt <= FEISHU_API_MAX_RETRIES; attempt++) {
         if (attempt > 0) {
-            /* Exponential backoff: 500ms, 1000ms */
             vTaskDelay(pdMS_TO_TICKS(500 * attempt));
-            ESP_LOGW(TAG, "API retry attempt %d/%d", attempt, FEISHU_API_MAX_RETRIES);
+            ESP_LOGW(TAG, "API retry %d/%d", attempt, FEISHU_API_MAX_RETRIES);
         }
 
         http_resp_t resp = {
@@ -196,7 +195,6 @@ static char *feishu_api_call(const char *url, const char *method, const char *po
             continue;
         }
 
-        /* Set headers */
         char auth_header[600];
         snprintf(auth_header, sizeof(auth_header), "Bearer %s", s_tenant_token);
         esp_http_client_set_header(client, "Authorization", auth_header);
@@ -216,26 +214,27 @@ static char *feishu_api_call(const char *url, const char *method, const char *po
         esp_http_client_cleanup(client);
 
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+            /* Network/timeout errors are transient — use WARN level */
+            ESP_LOGW(TAG, "HTTP request failed: %s", esp_err_to_name(err));
             free(resp.buf);
-            continue;  /* Retry on network error */
+            continue;
         }
 
-        /* Don't retry on client errors (4xx) */
+        /* Success: 2xx */
+        if (status >= 200 && status < 300) {
+            return resp.buf;
+        }
+
+        /* Client errors (4xx): not retryable */
         if (status >= 400 && status < 500) {
             ESP_LOGE(TAG, "API client error: HTTP %d", status);
             free(resp.buf);
             return NULL;
         }
 
-        /* Retry on server errors (5xx) */
-        if (status >= 500) {
-            ESP_LOGW(TAG, "API server error: HTTP %d", status);
-            free(resp.buf);
-            continue;
-        }
-
-        return resp.buf;
+        /* Server errors (5xx) or unexpected status: retryable */
+        ESP_LOGW(TAG, "API error: HTTP %d, retrying", status);
+        free(resp.buf);
     }
 
     ESP_LOGE(TAG, "API call failed after %d retries", FEISHU_API_MAX_RETRIES);
@@ -329,7 +328,7 @@ static esp_err_t feishu_webhook_handler(httpd_req_t *req)
     if (len <= 0) {
         ESP_LOGE(TAG, "Failed to read request body");
         free(buffer);
-        httpd_resp_send(req, FEISHU_OK_RESPONSE, HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send(req, FEISHU_EVENT_ACK_RESPONSE, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     buffer[len] = '\0';
@@ -354,7 +353,7 @@ static esp_err_t feishu_webhook_handler(httpd_req_t *req)
 
     free(buffer);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, FEISHU_OK_RESPONSE, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, FEISHU_EVENT_ACK_RESPONSE, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
 
@@ -408,7 +407,58 @@ static const char *get_receive_id_type(const char *chat_id)
     if (strncmp(chat_id, "ou_", 3) == 0) return "open_id";
     if (strncmp(chat_id, "on_", 3) == 0) return "union_id";
     if (strncmp(chat_id, "oc_", 3) == 0) return "chat_id";
-    return "chat_id";  /* Default fallback */
+    return "chat_id";
+}
+
+/**
+ * Adjust a split position to avoid breaking UTF-8 multi-byte characters.
+ * If pos falls on a continuation byte (10xxxxxx), back up to the leading byte.
+ */
+static size_t utf8_safe_split(const char *text, size_t pos)
+{
+    /* Walk back while the byte at pos is a UTF-8 continuation byte (0x80..0xBF) */
+    while (pos > 0 && ((uint8_t)text[pos] & 0xC0) == 0x80) {
+        pos--;
+    }
+    return pos;
+}
+
+/**
+ * Build the Feishu text message JSON body for a given segment.
+ * Returns a heap-allocated JSON string, or NULL on failure.
+ * Caller must free the returned string.
+ */
+static char *build_text_message_json(const char *chat_id,
+                                     const char *text, size_t offset, size_t chunk)
+{
+    /* Build nested content: {"text": "..."} */
+    cJSON *content_obj = cJSON_CreateObject();
+    if (!content_obj) return NULL;
+
+    /* Copy the segment to a temporary buffer for null-termination */
+    char *segment = malloc(chunk + 1);
+    if (!segment) { cJSON_Delete(content_obj); return NULL; }
+    memcpy(segment, text + offset, chunk);
+    segment[chunk] = '\0';
+    cJSON_AddStringToObject(content_obj, "text", segment);
+    free(segment);
+
+    char *content_str = cJSON_PrintUnformatted(content_obj);
+    cJSON_Delete(content_obj);
+    if (!content_str) return NULL;
+
+    /* Build outer message body */
+    cJSON *body = cJSON_CreateObject();
+    if (!body) { free(content_str); return NULL; }
+
+    cJSON_AddStringToObject(body, "receive_id", chat_id);
+    cJSON_AddStringToObject(body, "msg_type", "text");
+    cJSON_AddStringToObject(body, "content", content_str);
+    free(content_str);
+
+    char *json_str = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    return json_str;  /* May be NULL on OOM */
 }
 
 /* ── Public API ─────────────────────────────────────────── */
@@ -466,76 +516,58 @@ esp_err_t feishu_send_message(const char *chat_id, const char *text)
         return ESP_ERR_INVALID_ARG;
     }
 
-    /* Build URL with receive_id_type from chat_id prefix */
     char url[256];
     snprintf(url, sizeof(url), "%s?receive_id_type=%s",
              FEISHU_MSG_URL, get_receive_id_type(chat_id));
 
-    /* Split long messages at boundary */
     size_t text_len = strlen(text);
     size_t offset = 0;
+    esp_err_t result = ESP_OK;
 
     while (offset < text_len) {
         size_t chunk = text_len - offset;
         if (chunk > MIMI_FEISHU_MAX_MSG_LEN) {
             chunk = MIMI_FEISHU_MAX_MSG_LEN;
+            /* Avoid splitting in the middle of a UTF-8 multi-byte character */
+            chunk = utf8_safe_split(text + offset, chunk);
+            if (chunk == 0) chunk = MIMI_FEISHU_MAX_MSG_LEN; /* Safety: avoid infinite loop */
         }
 
-        /* Create message segment */
-        char *segment = malloc(chunk + 1);
-        if (!segment) {
-            return ESP_ERR_NO_MEM;
-        }
-        memcpy(segment, text + offset, chunk);
-        segment[chunk] = '\0';
-
-        /* Build JSON body */
-        cJSON *body = cJSON_CreateObject();
-        cJSON_AddStringToObject(body, "receive_id", chat_id);
-        cJSON_AddStringToObject(body, "msg_type", "text");
-        
-        cJSON *content = cJSON_CreateObject();
-        cJSON_AddStringToObject(content, "text", segment);
-        char *content_str = cJSON_PrintUnformatted(content);
-        cJSON_Delete(content);
-        
-        if (content_str) {
-            cJSON_AddStringToObject(body, "content", content_str);
-            free(content_str);
+        /* Build JSON via helper (handles all internal cleanup) */
+        char *json_str = build_text_message_json(chat_id, text, offset, chunk);
+        if (!json_str) {
+            ESP_LOGE(TAG, "Failed to build message JSON");
+            result = ESP_ERR_NO_MEM;
+            break;
         }
 
-        char *json_str = cJSON_PrintUnformatted(body);
-        cJSON_Delete(body);
-        free(segment);
+        char *resp = feishu_api_call(url, "POST", json_str);
+        free(json_str);
 
-        if (json_str) {
-            char *resp = feishu_api_call(url, "POST", json_str);
-            free(json_str);
-
-            if (resp) {
-                cJSON *root = cJSON_Parse(resp);
-                if (root) {
-                    cJSON *code = cJSON_GetObjectItem(root, "code");
-                    cJSON *msg = cJSON_GetObjectItem(root, "msg");
-                    if (!code || code->valueint != 0) {
-                        ESP_LOGE(TAG, "Send failed: code=%d, msg=%s", 
-                                code ? code->valueint : -1, 
-                                msg ? msg->valuestring : "unknown");
-                    }
-                    cJSON_Delete(root);
-                } else {
-                    ESP_LOGE(TAG, "Failed to parse API response");
+        if (resp) {
+            /* Check Feishu business-level error code */
+            cJSON *root = cJSON_Parse(resp);
+            if (root) {
+                cJSON *code = cJSON_GetObjectItem(root, "code");
+                cJSON *msg = cJSON_GetObjectItem(root, "msg");
+                if (!code || code->valueint != 0) {
+                    ESP_LOGE(TAG, "Send failed: code=%d, msg=%s",
+                            code ? code->valueint : -1,
+                            msg ? msg->valuestring : "unknown");
                 }
-                free(resp);
-            } else {
-                ESP_LOGE(TAG, "Failed to send message chunk");
+                cJSON_Delete(root);
             }
+            free(resp);
+        } else {
+            ESP_LOGE(TAG, "API call failed for message chunk");
+            result = ESP_FAIL;
+            /* Continue sending remaining chunks despite partial failure */
         }
 
         offset += chunk;
     }
 
-    return ESP_OK;
+    return result;
 }
 
 esp_err_t feishu_set_credentials(const char *app_id, const char *app_secret)
