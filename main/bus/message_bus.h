@@ -8,6 +8,7 @@
 #define MIMI_CHAN_TELEGRAM   "telegram"
 #define MIMI_CHAN_WEBSOCKET  "websocket"
 #define MIMI_CHAN_CLI        "cli"
+#define MIMI_CHAN_VOICE      "voice"
 
 /* Message types on the bus */
 typedef struct {

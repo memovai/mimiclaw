@@ -13,11 +13,21 @@ typedef struct {
     uint8_t *buf;
     size_t len;
     size_t cap;
+    int sample_rate;
 } tts_buf_t;
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
     tts_buf_t *tb = (tts_buf_t *)evt->user_data;
+    
+    if (evt->event_id == HTTP_EVENT_ON_HEADER && tb) {
+        /* Capture sample rate from header */
+        if (strcasecmp(evt->header_key, "X-Sample-Rate") == 0) {
+            tb->sample_rate = atoi(evt->header_value);
+            ESP_LOGI(TAG, "TTS sample rate: %d Hz", tb->sample_rate);
+        }
+    }
+    
     if (evt->event_id == HTTP_EVENT_ON_DATA && tb) {
         if (tb->len + evt->data_len <= tb->cap) {
             memcpy(tb->buf + tb->len, evt->data, evt->data_len);
@@ -45,10 +55,10 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
 
     ESP_LOGI(TAG, "TTS request: \"%s\" → %s", text, url);
 
-    /* Build JSON body */
+    /* Build JSON body with PCM format request (raw audio, no container) */
     char json_body[1024];
     int json_len = snprintf(json_body, sizeof(json_body),
-        "{\"model\":\"%s\",\"input\":\"%s\",\"speed\":1.0}",
+        "{\"model\":\"%s\",\"input\":\"%s\",\"speed\":1.0,\"response_format\":\"pcm\"}",
         MIMI_SECRET_TTS_MODEL, text);
 
     if (json_len >= (int)sizeof(json_body)) {
@@ -61,6 +71,7 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
         .buf = wav_out,
         .len = 0,
         .cap = wav_out_cap,
+        .sample_rate = 16000,  /* default, will be updated from header */
     };
 
     esp_http_client_config_t config = {
@@ -113,7 +124,8 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
 
-    ESP_LOGI(TAG, "TTS response: HTTP %d, %d bytes audio data", status, (int)tb.len);
+    ESP_LOGI(TAG, "TTS response: HTTP %d, %d bytes PCM audio (%d Hz)", 
+             status, (int)tb.len, tb.sample_rate);
 
     if (status != 200) {
         ESP_LOGE(TAG, "TTS server returned HTTP %d", status);

@@ -13,6 +13,8 @@
 #include "input/button_input.h"
 #include "voice/stt_client.h"
 #include "voice/tts_client.h"
+#include "voice/voice_channel.h"
+#include "wake/wake_word.h"
 #include "audio/audio_hal.h"
 
 #include <string.h>
@@ -575,6 +577,154 @@ static int cmd_tts_test(int argc, char **argv)
     return 0;
 }
 
+/* --- wake_test command: init wake word and listen for 30s --- */
+static void wake_test_cb(void)
+{
+    printf("\n>>> WAKE WORD DETECTED! <<<\n");
+}
+
+static int cmd_wake_test(int argc, char **argv)
+{
+    static bool inited = false;
+    if (!inited) {
+        printf("Initializing wake word engine...\n");
+        esp_err_t ret = wake_word_init(wake_test_cb);
+        if (ret != ESP_OK) {
+            printf("Wake word init failed: %s\n", esp_err_to_name(ret));
+            return 1;
+        }
+        inited = true;
+    }
+
+    printf("Starting wake word detection — say \"Jarvis\"...\n");
+    printf("Listening for 30 seconds...\n");
+    wake_word_start();
+
+    vTaskDelay(pdMS_TO_TICKS(30000));
+
+    wake_word_stop();
+    printf("Wake word test done\n");
+    return 0;
+}
+
+/* --- voice_status command --- */
+static int cmd_voice_status(int argc, char **argv)
+{
+    const char *state = voice_channel_get_state();
+    printf("Voice channel state: %s\n", state);
+    
+    size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    printf("Memory: Internal=%d bytes, PSRAM=%d KB\n", 
+           (int)internal_free, (int)(psram_free / 1024));
+    
+    return 0;
+}
+
+/* --- voice_test command --- */
+static int cmd_voice_test(int argc, char **argv)
+{
+    printf("=== Voice Channel Test ===\n");
+    printf("This test simulates the full voice interaction flow:\n");
+    printf("1. Record 3 seconds of audio\n");
+    printf("2. Transcribe via STT\n");
+    printf("3. Display transcribed text\n");
+    printf("4. Synthesize mock response via TTS\n");
+    printf("5. Play audio\n\n");
+    
+    printf("Recording 3 seconds... Speak now!\n");
+    
+    const int duration_s = 3;
+    const size_t samples = MIMI_AUDIO_SAMPLE_RATE * duration_s;
+    const size_t mono_bytes = samples * sizeof(int16_t);
+    const size_t stereo_bytes = samples * 2 * sizeof(int16_t);
+    
+    int16_t *mono_buf = heap_caps_malloc(mono_bytes, MALLOC_CAP_SPIRAM);
+    int16_t *stereo_buf = heap_caps_malloc(stereo_bytes, MALLOC_CAP_SPIRAM);
+    
+    if (!mono_buf || !stereo_buf) {
+        printf("ERROR: Failed to allocate buffers\n");
+        free(mono_buf);
+        free(stereo_buf);
+        return 1;
+    }
+    
+    esp_codec_dev_handle_t in_dev = audio_hal_get_input_dev();
+    size_t recorded = 0;
+    
+    display_set_state(DISPLAY_STATE_LISTENING);
+    
+    while (recorded < stereo_bytes) {
+        size_t chunk = (stereo_bytes - recorded) > 4096 ? 4096 : (stereo_bytes - recorded);
+        int ret = esp_codec_dev_read(in_dev, (uint8_t *)stereo_buf + recorded, chunk);
+        if (ret != 0) {
+            printf("ERROR: Mic read failed: %d\n", ret);
+            break;
+        }
+        recorded += chunk;
+    }
+    
+    for (size_t i = 0; i < samples; i++) {
+        mono_buf[i] = stereo_buf[i * 2];
+    }
+    
+    free(stereo_buf);
+    
+    printf("Recording complete. Transcribing...\n");
+    display_set_state(DISPLAY_STATE_THINKING);
+    
+    char text[512];
+    esp_err_t err = stt_transcribe(mono_buf, mono_bytes, text, sizeof(text));
+    free(mono_buf);
+    
+    if (err != ESP_OK) {
+        printf("ERROR: STT failed: %s\n", esp_err_to_name(err));
+        display_set_state(DISPLAY_STATE_ERROR);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        display_set_state(DISPLAY_STATE_IDLE);
+        return 1;
+    }
+    
+    printf("Transcribed text: \"%s\"\n", text);
+    
+    const char *mock_response = "Voice channel test successful. Audio playback working.";
+    printf("Synthesizing mock response: \"%s\"\n", mock_response);
+    
+    uint8_t *tts_buf = heap_caps_malloc(MIMI_VOICE_TTS_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    if (!tts_buf) {
+        printf("ERROR: Failed to allocate TTS buffer\n");
+        display_set_state(DISPLAY_STATE_IDLE);
+        return 1;
+    }
+    
+    size_t wav_len = 0;
+    err = tts_synthesize(mock_response, tts_buf, MIMI_VOICE_TTS_BUF_SIZE, &wav_len);
+    
+    if (err != ESP_OK || wav_len == 0) {
+        printf("ERROR: TTS failed: %s\n", esp_err_to_name(err));
+        free(tts_buf);
+        display_set_state(DISPLAY_STATE_ERROR);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        display_set_state(DISPLAY_STATE_IDLE);
+        return 1;
+    }
+    
+    printf("Playing response (%d bytes)...\n", (int)wav_len);
+    display_set_state(DISPLAY_STATE_SPEAKING);
+    
+    err = audio_player_play_wav(tts_buf, wav_len);
+    free(tts_buf);
+    
+    if (err != ESP_OK) {
+        printf("ERROR: Playback failed: %s\n", esp_err_to_name(err));
+    }
+    
+    display_set_state(DISPLAY_STATE_IDLE);
+    printf("Voice test complete!\n");
+    
+    return 0;
+}
+
 /* --- restart command --- */
 static int cmd_restart(int argc, char **argv)
 {
@@ -840,6 +990,30 @@ esp_err_t serial_cli_init(void)
         .argtable = &tts_test_args,
     };
     esp_console_cmd_register(&tts_test_cmd);
+
+    /* voice_status */
+    esp_console_cmd_t voice_status_cmd = {
+        .command = "voice_status",
+        .help = "Show voice channel state and memory usage",
+        .func = &cmd_voice_status,
+    };
+    esp_console_cmd_register(&voice_status_cmd);
+
+    /* voice_test */
+    esp_console_cmd_t voice_test_cmd = {
+        .command = "voice_test",
+        .help = "Test full voice interaction flow (record → STT → TTS → play)",
+        .func = &cmd_voice_test,
+    };
+    esp_console_cmd_register(&voice_test_cmd);
+
+    /* wake_test */
+    esp_console_cmd_t wake_test_cmd = {
+        .command = "wake_test",
+        .help = "Listen for wake word \"Jarvis\" for 30 seconds",
+        .func = &cmd_wake_test,
+    };
+    esp_console_cmd_register(&wake_test_cmd);
 
     /* Start REPL */
     ESP_ERROR_CHECK(esp_console_start_repl(repl));

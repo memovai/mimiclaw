@@ -122,8 +122,8 @@ static void agent_loop_task(void *arg)
         int iteration = 0;
 
         while (iteration < MIMI_AGENT_MAX_TOOL_ITER) {
-            /* Send "working" indicator before each API call */
-            {
+            /* Send "working" indicator before each API call (skip for voice channel) */
+            if (strcmp(msg.channel, MIMI_CHAN_VOICE) != 0) {
                 static const char *working_phrases[] = {
                     "mimi\xF0\x9F\x98\x97is working...",
                     "mimi\xF0\x9F\x90\xBE is thinking...",

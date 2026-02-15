@@ -24,6 +24,8 @@ idf_component_register(
         "input/button_input.c"
         "voice/stt_client.c"
         "voice/tts_client.c"
+        "voice/voice_channel.c"
+        "wake/wake_word.c"
     INCLUDE_DIRS
         "."
     REQUIRES

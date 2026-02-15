@@ -162,6 +162,14 @@
 /* WS2812 LED */
 #define MIMI_LED_PIN             GPIO_NUM_48
 
+/* Voice Channel */
+#define MIMI_VOICE_STACK             (8 * 1024)
+#define MIMI_VOICE_PRIO              5
+#define MIMI_VOICE_CORE              0
+#define MIMI_VOICE_MAX_RECORDING_S   10
+#define MIMI_VOICE_RECORDING_BUF_SIZE (MIMI_AUDIO_SAMPLE_RATE * 2 * MIMI_VOICE_MAX_RECORDING_S)
+#define MIMI_VOICE_TTS_BUF_SIZE      (512 * 1024)
+
 /* NVS Keys */
 #define MIMI_NVS_KEY_SSID            "ssid"
 #define MIMI_NVS_KEY_PASS            "password"
