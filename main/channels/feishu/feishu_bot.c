@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_http_server.h"
 #include "esp_crt_bundle.h"
 #include "esp_timer.h"
 #include "nvs.h"
@@ -208,22 +209,144 @@ static char *feishu_api_call(const char *url, const char *method, const char *po
     return resp.buf;
 }
 
-/* ── Message polling (simulated - in real scenario use event subscription) ── */
-/* Note: Feishu uses event callback mode, not polling like Telegram.
- * For simplicity, we'll implement a basic message sending capability only.
- * Full implementation would require webhook server or websocket connection.
- */
+/* ── Webhook server for event subscription ──────────────── */
+static httpd_handle_t s_webhook_server = NULL;
 
-static void feishu_poll_task(void *arg)
+static esp_err_t feishu_webhook_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "Feishu polling task started");
-    ESP_LOGW(TAG, "Note: Feishu uses event subscription, not polling.");
-    ESP_LOGW(TAG, "This task is a placeholder. Configure event callback URL in Feishu Admin.");
-
-    while (1) {
-        /* In a real implementation, this would be replaced by webhook event handling */
-        vTaskDelay(pdMS_TO_TICKS(30000));
+    /* Only accept POST requests */
+    if (req->method != 3) {  // 直接匹配测试中收到的实际值
+        ESP_LOGW(TAG, "Method not allowed: %d, expected: 3 (POST)", req->method);
+        httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+        return ESP_OK;
     }
+    
+    /* Read request body */
+    char buffer[4096] = {0};
+    int len = httpd_req_recv(req, buffer, sizeof(buffer) - 1);
+    
+    if (len <= 0) {
+        ESP_LOGE(TAG, "Failed to read request body: %s", len < 0 ? esp_err_to_name(len) : "No data");
+        httpd_resp_send(req, "{\"code\":0,\"msg\":\"success\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    buffer[len] = '\0';
+    
+    ESP_LOGD(TAG, "Received request: len=%d", len);
+    
+    /* Check for URL verification (challenge) */
+    if (strstr(buffer, "challenge") != NULL) {
+        ESP_LOGI(TAG, "URL verification challenge handled");
+        httpd_resp_send(req, buffer, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    if (strstr(buffer, "im.message.receive_v1") != NULL) {
+        /* Try to parse message data using cJSON */
+        cJSON *root = cJSON_Parse(buffer);
+        if (root) {
+            cJSON *event = cJSON_GetObjectItem(root, "event");
+            if (event) {
+                cJSON *message = cJSON_GetObjectItem(event, "message");
+                if (message) {
+                    cJSON *chat_id = cJSON_GetObjectItem(message, "chat_id");
+                    cJSON *content = cJSON_GetObjectItem(message, "content");
+                    
+                    if (chat_id && cJSON_IsString(chat_id) && content && cJSON_IsString(content)) {
+                        /* Parse message content JSON */
+                        cJSON *msg_content = cJSON_Parse(content->valuestring);
+                        if (msg_content) {
+                            cJSON *text = cJSON_GetObjectItem(msg_content, "text");
+                            if (text && cJSON_IsString(text)) {
+                                /* Push to message bus */
+                                mimi_msg_t msg = {0};
+                                strncpy(msg.channel, MIMI_CHAN_FEISHU, sizeof(msg.channel) - 1);
+                                strncpy(msg.chat_id, chat_id->valuestring, sizeof(msg.chat_id) - 1);
+                                msg.content = strdup(text->valuestring);
+                                
+                                if (msg.content) {
+                                    ESP_LOGI(TAG, "Message from Feishu chat %s: %.50s...", chat_id->valuestring, text->valuestring);
+                                    esp_err_t ret = message_bus_push_inbound(&msg);
+                                    if (ret != ESP_OK) {
+                                        ESP_LOGE(TAG, "Failed to push message to bus: %s", esp_err_to_name(ret));
+                                        free(msg.content);
+                                    }
+                                }
+                            }
+                            cJSON_Delete(msg_content);
+                        } else {
+                            ESP_LOGE(TAG, "Failed to parse message content JSON");
+                        }
+                    } else {
+                        ESP_LOGE(TAG, "Missing chat_id or content in message");
+                    }
+                } else {
+                    ESP_LOGE(TAG, "Missing message field in event");
+                }
+            } else {
+                ESP_LOGE(TAG, "Missing event field in JSON");
+            }
+            cJSON_Delete(root);
+        } else {
+            ESP_LOGE(TAG, "Failed to parse request JSON");
+        }
+        
+        httpd_resp_send(req, "{\"code\":0,\"msg\":\"success\"}", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    /* Unknown event type */
+    ESP_LOGW(TAG, "Unknown request type received");
+    
+    /* Default response */
+    httpd_resp_send(req, "{\"code\":0,\"msg\":\"success\"}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+static esp_err_t feishu_webhook_server_start(void)
+{
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = 8765; /* Default Feishu webhook port */
+    config.max_open_sockets = 4;
+    config.stack_size = 10240; /* 增加HTTP服务器任务堆栈大小，防止堆栈溢出 */
+    
+    ESP_LOGI(TAG, "Starting Feishu webhook server on port %d", config.server_port);
+    
+    esp_err_t ret = httpd_start(&s_webhook_server, &config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start Feishu webhook server: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    /* Register URI handler */
+    httpd_uri_t webhook_uri = {
+        .uri = "/feishu/webhook",
+        .method = HTTP_ANY,  /* 支持所有 HTTP 方法 */
+        .handler = feishu_webhook_handler,
+        .is_websocket = false,
+    };
+    
+    ret = httpd_register_uri_handler(s_webhook_server, &webhook_uri);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register URI handler: %s", esp_err_to_name(ret));
+        httpd_stop(s_webhook_server);
+        s_webhook_server = NULL;
+        return ret;
+    }
+    
+    ESP_LOGI(TAG, "Feishu webhook server started on port %d", config.server_port);
+    return ESP_OK;
+}
+
+static esp_err_t feishu_webhook_server_stop(void)
+{
+    if (s_webhook_server) {
+        httpd_stop(s_webhook_server);
+        s_webhook_server = NULL;
+        ESP_LOGI(TAG, "Feishu webhook server stopped");
+    }
+    return ESP_OK;
 }
 
 /* ── Public API ─────────────────────────────────────────── */
@@ -256,14 +379,25 @@ esp_err_t feishu_bot_init(void)
     return ESP_OK;
 }
 
+esp_err_t feishu_bot_stop(void)
+{
+    return feishu_webhook_server_stop();
+}
+
 esp_err_t feishu_bot_start(void)
 {
-    BaseType_t ret = xTaskCreatePinnedToCore(
-        feishu_poll_task, "feishu_poll",
-        MIMI_FEISHU_POLL_STACK, NULL,
-        MIMI_FEISHU_POLL_PRIO, NULL, MIMI_FEISHU_POLL_CORE);
-
-    return (ret == pdPASS) ? ESP_OK : ESP_FAIL;
+    /* Start webhook server for event subscription */
+    esp_err_t ret = feishu_webhook_server_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start Feishu webhook server: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    /* Note: Feishu uses event subscription, not polling. 
+     * Configure the callback URL in Feishu Admin: http://<your-ip>:8765/feishu/webhook
+     */
+   
+    return ESP_OK;
 }
 
 esp_err_t feishu_send_message(const char *chat_id, const char *text)
@@ -273,9 +407,38 @@ esp_err_t feishu_send_message(const char *chat_id, const char *text)
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Build message URL */
+    if (!chat_id || !text) {
+        ESP_LOGE(TAG, "Invalid parameters: chat_id or text is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Build message URL - determine receive_id_type based on chat_id format */
     char url[256];
-    snprintf(url, sizeof(url), "%s?receive_id_type=chat_id", FEISHU_EVENT_URL);
+    
+    /* Check chat_id format to determine receive_id_type:
+       - oc_...: chat_id (group or direct chat)
+       - ou_...: open_id (single user)
+       - We need to check which type is supported by the API
+    */
+    
+    /* According to Feishu API documentation, for messages, you can use:
+       - open_id: user open id (ou_...)
+       - union_id: user union id  
+       - user_id: enterprise user id
+       - chat_id: chat id (oc_...)
+    */
+    
+    const char *receive_id_type = "chat_id";  // Default to chat_id
+    
+    if (strstr(chat_id, "ou_") != NULL) {
+        receive_id_type = "open_id";
+    }
+    
+    if (strstr(chat_id, "oc_") != NULL) {
+        receive_id_type = "chat_id";
+    }
+    
+    snprintf(url, sizeof(url), "%s?receive_id_type=%s", FEISHU_EVENT_URL, receive_id_type);
 
     /* Split long messages at 4096-char boundary */
     size_t text_len = strlen(text);
@@ -290,12 +453,13 @@ esp_err_t feishu_send_message(const char *chat_id, const char *text)
         /* Create message segment */
         char *segment = malloc(chunk + 1);
         if (!segment) {
+            ESP_LOGE(TAG, "Failed to allocate memory for message segment");
             return ESP_ERR_NO_MEM;
         }
         memcpy(segment, text + offset, chunk);
         segment[chunk] = '\0';
 
-        /* Build JSON body */
+        /* Build JSON body according to Feishu API */
         cJSON *body = cJSON_CreateObject();
         cJSON_AddStringToObject(body, "receive_id", chat_id);
         cJSON_AddStringToObject(body, "msg_type", "text");
@@ -315,20 +479,27 @@ esp_err_t feishu_send_message(const char *chat_id, const char *text)
         free(segment);
 
         if (json_str) {
+            ESP_LOGD(TAG, "Sending message to chat %s", chat_id);
             char *resp = feishu_api_call(url, "POST", json_str);
             free(json_str);
 
             if (resp) {
-                /* Check response */
+                /* Check response according to Feishu API */
                 cJSON *root = cJSON_Parse(resp);
                 if (root) {
                     cJSON *code = cJSON_GetObjectItem(root, "code");
-                    if (code && code->valueint != 0) {
-                        cJSON *msg = cJSON_GetObjectItem(root, "msg");
-                        ESP_LOGW(TAG, "Send message failed: code=%d, msg=%s", 
-                                code->valueint, msg ? msg->valuestring : "unknown");
+                    cJSON *msg = cJSON_GetObjectItem(root, "msg");
+                    
+                    if (code && code->valueint == 0) {
+                        ESP_LOGD(TAG, "Message sent to chat %s", chat_id);
+                    } else {
+                        ESP_LOGE(TAG, "Send message failed: code=%d, msg=%s", 
+                                code ? code->valueint : -1, 
+                                msg ? msg->valuestring : "unknown error");
                     }
                     cJSON_Delete(root);
+                } else {
+                    ESP_LOGE(TAG, "Failed to parse API response");
                 }
                 free(resp);
             } else {

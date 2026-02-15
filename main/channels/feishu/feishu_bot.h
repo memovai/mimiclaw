@@ -8,9 +8,14 @@
 esp_err_t feishu_bot_init(void);
 
 /**
- * Start the Feishu polling task (long polling on Core 0).
+ * Start the Feishu webhook server for event subscription.
  */
 esp_err_t feishu_bot_start(void);
+
+/**
+ * Stop the Feishu webhook server.
+ */
+esp_err_t feishu_bot_stop(void);
 
 /**
  * Send a text message to a Feishu chat.

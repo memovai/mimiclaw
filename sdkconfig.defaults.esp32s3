@@ -40,3 +40,6 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # WebSocket support
 CONFIG_HTTPD_WS_SUPPORT=y
+
+# SPIFFS: increase max filename length for long chat IDs (e.g. Feishu)
+CONFIG_SPIFFS_OBJ_NAME_LEN=64
