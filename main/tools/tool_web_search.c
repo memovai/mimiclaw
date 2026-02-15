@@ -165,7 +165,7 @@ static esp_err_t search_direct(const char *url, search_buf_t *sb)
 
 static esp_err_t search_via_proxy(const char *path, search_buf_t *sb)
 {
-    proxy_conn_t *conn = proxy_conn_open("api.search.brave.com", 443, 15000);
+    proxy_conn_t *conn = proxy_conn_open("api.search.brave.com", 443, MIMI_PROXY_CONNECT_TIMEOUT_MS);
     if (!conn) return ESP_ERR_HTTP_CONNECT;
 
     char header[512];
@@ -186,7 +186,7 @@ static esp_err_t search_via_proxy(const char *path, search_buf_t *sb)
     char tmp[4096];
     size_t total = 0;
     while (1) {
-        int n = proxy_conn_read(conn, tmp, sizeof(tmp), 15000);
+        int n = proxy_conn_read(conn, tmp, sizeof(tmp), MIMI_PROXY_IO_TIMEOUT_MS);
         if (n <= 0) break;
         size_t copy = (total + n < sb->cap - 1) ? (size_t)n : sb->cap - 1 - total;
         if (copy > 0) {

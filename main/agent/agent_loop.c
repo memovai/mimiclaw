@@ -5,6 +5,7 @@
 #include "llm/llm_proxy.h"
 #include "memory/session_mgr.h"
 #include "tools/tool_registry.h"
+#include "display/display.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -53,7 +54,9 @@ static cJSON *build_assistant_content(const llm_response_t *resp)
 }
 
 /* Build the user message with tool_result blocks */
-static cJSON *build_tool_results(const llm_response_t *resp, char *tool_output, size_t tool_output_size)
+static cJSON *build_tool_results(const llm_response_t *resp, char *tool_output, size_t tool_output_size,
+                                 char *last_tool_name, size_t last_tool_name_size,
+                                 char *last_tool_result, size_t last_tool_result_size)
 {
     cJSON *content = cJSON_CreateArray();
 
@@ -62,9 +65,17 @@ static cJSON *build_tool_results(const llm_response_t *resp, char *tool_output, 
 
         /* Execute tool */
         tool_output[0] = '\0';
+        display_show_agent_status("[TOOL]", call->name, call->input, true);
         tool_registry_execute(call->name, call->input, tool_output, tool_output_size);
+        display_show_agent_status("[TOOL]", call->name, "done", false);
 
         ESP_LOGI(TAG, "Tool %s result: %d bytes", call->name, (int)strlen(tool_output));
+        if (last_tool_name && last_tool_name_size > 0) {
+            snprintf(last_tool_name, last_tool_name_size, "%s", call->name);
+        }
+        if (last_tool_result && last_tool_result_size > 0) {
+            snprintf(last_tool_result, last_tool_result_size, "%.180s", tool_output);
+        }
 
         /* Build tool_result block */
         cJSON *result_block = cJSON_CreateObject();
@@ -100,6 +111,9 @@ static void agent_loop_task(void *arg)
         if (err != ESP_OK) continue;
 
         ESP_LOGI(TAG, "Processing message from %s:%s", msg.channel, msg.chat_id);
+        ESP_LOGI(TAG, "Stack watermark before request: %u bytes",
+                 (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
+        display_show_agent_status("[AGENT]", "New Request", msg.content, true);
 
         /* 1. Build system prompt */
         context_build_system_prompt(system_prompt, MIMI_CONTEXT_BUF_SIZE);
@@ -120,6 +134,8 @@ static void agent_loop_task(void *arg)
         /* 4. ReAct loop */
         char *final_text = NULL;
         int iteration = 0;
+        char last_tool_name[32] = {0};
+        char last_tool_result[192] = {0};
 
         while (iteration < MIMI_AGENT_MAX_TOOL_ITER) {
             /* Send "working" indicator before each API call */
@@ -140,10 +156,18 @@ static void agent_loop_task(void *arg)
             }
 
             llm_response_t resp;
+            display_show_agent_status("[LLM]", "Thinking", "calling model", true);
             err = llm_chat_tools(system_prompt, messages, tools_json, &resp);
+            if (err == ESP_OK) {
+                display_show_agent_status("[LLM]", "Response Received", "", false);
+            }
 
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "LLM call failed: %s", esp_err_to_name(err));
+                if (err == ESP_ERR_INVALID_STATE) {
+                    free(final_text);
+                    final_text = strdup("LLM authentication failed. Please run `set_api_key <YOUR_VALID_KEY>` and retry.");
+                }
                 break;
             }
 
@@ -165,7 +189,10 @@ static void agent_loop_task(void *arg)
             cJSON_AddItemToArray(messages, asst_msg);
 
             /* Execute tools and append results */
-            cJSON *tool_results = build_tool_results(&resp, tool_output, TOOL_OUTPUT_SIZE);
+            cJSON *tool_results = build_tool_results(
+                &resp, tool_output, TOOL_OUTPUT_SIZE,
+                last_tool_name, sizeof(last_tool_name),
+                last_tool_result, sizeof(last_tool_result));
             cJSON *result_msg = cJSON_CreateObject();
             cJSON_AddStringToObject(result_msg, "role", "user");
             cJSON_AddItemToObject(result_msg, "content", tool_results);
@@ -175,6 +202,37 @@ static void agent_loop_task(void *arg)
             iteration++;
         }
 
+        if (!final_text && iteration >= MIMI_AGENT_MAX_TOOL_ITER) {
+            ESP_LOGW(TAG, "Reached max tool iterations (%d), forcing text completion", MIMI_AGENT_MAX_TOOL_ITER);
+
+            char *messages_json = cJSON_PrintUnformatted(messages);
+            char *fallback_text = heap_caps_calloc(1, 2048, MALLOC_CAP_SPIRAM);
+            if (!fallback_text) {
+                fallback_text = calloc(1, 2048);
+            }
+            if (messages_json && fallback_text) {
+                err = llm_chat(system_prompt, messages_json, fallback_text, 2048);
+                if (err == ESP_OK && fallback_text[0]) {
+                    final_text = strdup(fallback_text);
+                }
+            }
+            free(messages_json);
+            free(fallback_text);
+
+            if (!final_text) {
+                if (last_tool_name[0]) {
+                    char msg_buf[320];
+                    snprintf(msg_buf, sizeof(msg_buf),
+                             "Tool loop reached limit (%d). Last tool `%s` output: %s",
+                             MIMI_AGENT_MAX_TOOL_ITER, last_tool_name,
+                             last_tool_result[0] ? last_tool_result : "(empty)");
+                    final_text = strdup(msg_buf);
+                } else {
+                    final_text = strdup("Tool loop reached limit and no final answer was generated.");
+                }
+            }
+        }
+
         cJSON_Delete(messages);
 
         /* 5. Send response */
@@ -182,6 +240,8 @@ static void agent_loop_task(void *arg)
             /* Save to session (only user text + final assistant text) */
             session_append(msg.chat_id, "user", msg.content);
             session_append(msg.chat_id, "assistant", final_text);
+            display_show_agent_status("[DONE]", "Reply Ready", final_text, false);
+            ESP_LOGI(TAG, "Final reply (%d bytes): %.320s", (int)strlen(final_text), final_text);
 
             /* Push response to outbound */
             mimi_msg_t out = {0};
@@ -192,6 +252,8 @@ static void agent_loop_task(void *arg)
         } else {
             /* Error or empty response */
             free(final_text);
+            display_show_agent_status("[ERR]", "Agent Error", "Sorry, I encountered an error.", false);
+            ESP_LOGW(TAG, "Final reply empty, sending generic error");
             mimi_msg_t out = {0};
             strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
             strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
@@ -200,6 +262,7 @@ static void agent_loop_task(void *arg)
                 message_bus_push_outbound(&out);
             }
         }
+        display_clear_agent_status();
 
         /* Free inbound message content */
         free(msg.content);
@@ -207,6 +270,8 @@ static void agent_loop_task(void *arg)
         /* Log memory status */
         ESP_LOGI(TAG, "Free PSRAM: %d bytes",
                  (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        ESP_LOGI(TAG, "Stack watermark after request: %u bytes",
+                 (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
     }
 }
 
@@ -218,10 +283,27 @@ esp_err_t agent_loop_init(void)
 
 esp_err_t agent_loop_start(void)
 {
-    BaseType_t ret = xTaskCreatePinnedToCore(
-        agent_loop_task, "agent_loop",
-        MIMI_AGENT_STACK, NULL,
-        MIMI_AGENT_PRIO, NULL, MIMI_AGENT_CORE);
+    static StaticTask_t s_agent_task_tcb;
+    static StackType_t s_agent_task_stack[MIMI_AGENT_STACK / sizeof(StackType_t)];
+    static TaskHandle_t s_agent_task_handle = NULL;
 
-    return (ret == pdPASS) ? ESP_OK : ESP_FAIL;
+    if (s_agent_task_handle != NULL) {
+        return ESP_OK;
+    }
+
+    s_agent_task_handle = xTaskCreateStaticPinnedToCore(
+        agent_loop_task, "agent_loop",
+        MIMI_AGENT_STACK / sizeof(StackType_t),
+        NULL,
+        MIMI_AGENT_PRIO,
+        s_agent_task_stack,
+        &s_agent_task_tcb,
+        MIMI_AGENT_CORE);
+    if (s_agent_task_handle == NULL) {
+        ESP_LOGE(TAG, "Failed to create agent loop task");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Agent loop task created with static stack=%u bytes", (unsigned)MIMI_AGENT_STACK);
+    return ESP_OK;
 }

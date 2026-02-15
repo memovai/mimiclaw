@@ -13,7 +13,9 @@
 
 static const char *TAG = "llm";
 
-static char s_api_key[128] = {0};
+#define LLM_API_KEY_MAX_LEN 256
+
+static char s_api_key[LLM_API_KEY_MAX_LEN] = {0};
 static char s_model[64] = MIMI_LLM_DEFAULT_MODEL;
 static char s_provider[16] = MIMI_LLM_PROVIDER_DEFAULT;
 
@@ -25,6 +27,19 @@ static void safe_copy(char *dst, size_t dst_size, const char *src)
         return;
     }
     snprintf(dst, dst_size, "%s", src);
+}
+
+static char *psram_strdup_or_malloc(const char *src)
+{
+    if (!src) return NULL;
+    size_t len = strlen(src) + 1;
+    char *buf = heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+    if (!buf) {
+        buf = malloc(len);
+    }
+    if (!buf) return NULL;
+    memcpy(buf, src, len);
+    return buf;
 }
 
 /* ── Response buffer ──────────────────────────────────────────── */
@@ -118,7 +133,7 @@ esp_err_t llm_proxy_init(void)
     /* NVS overrides take highest priority (set via CLI) */
     nvs_handle_t nvs;
     if (nvs_open(MIMI_NVS_LLM, NVS_READONLY, &nvs) == ESP_OK) {
-        char tmp[128] = {0};
+        char tmp[LLM_API_KEY_MAX_LEN] = {0};
         size_t len = sizeof(tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
             safe_copy(s_api_key, sizeof(s_api_key), tmp);
@@ -165,7 +180,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
     esp_http_client_set_header(client, "Content-Type", "application/json");
     if (provider_is_openai()) {
         if (s_api_key[0]) {
-            char auth[192];
+            char auth[320];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
             esp_http_client_set_header(client, "Authorization", auth);
         }
@@ -185,11 +200,11 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
 static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *out_status)
 {
-    proxy_conn_t *conn = proxy_conn_open(llm_api_host(), 443, 30000);
+    proxy_conn_t *conn = proxy_conn_open(llm_api_host(), 443, MIMI_PROXY_CONNECT_TIMEOUT_MS);
     if (!conn) return ESP_ERR_HTTP_CONNECT;
 
     int body_len = strlen(post_data);
-    char header[512];
+    char header[768];
     int hlen = 0;
     if (provider_is_openai()) {
         hlen = snprintf(header, sizeof(header),
@@ -221,7 +236,7 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
     /* Read full response into buffer */
     char tmp[4096];
     while (1) {
-        int n = proxy_conn_read(conn, tmp, sizeof(tmp), 120000);
+        int n = proxy_conn_read(conn, tmp, sizeof(tmp), MIMI_PROXY_IO_TIMEOUT_MS);
         if (n <= 0) break;
         if (resp_buf_append(rb, tmp, n) != ESP_OK) break;
     }
@@ -253,9 +268,8 @@ static esp_err_t llm_http_call(const char *post_data, resp_buf_t *rb, int *out_s
 {
     if (http_proxy_is_enabled()) {
         return llm_http_via_proxy(post_data, rb, out_status);
-    } else {
-        return llm_http_direct(post_data, rb, out_status);
     }
+    return llm_http_direct(post_data, rb, out_status);
 }
 
 /* ── Parse text from JSON response ────────────────────────────── */
@@ -478,7 +492,11 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    if (provider_is_openai()) {
+        cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
+    } else {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    }
 
     if (provider_is_openai()) {
         cJSON *messages = cJSON_Parse(messages_json);
@@ -507,10 +525,16 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         }
     }
 
-    char *post_data = cJSON_PrintUnformatted(body);
+    char *post_data_tmp = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
-    if (!post_data) {
+    if (!post_data_tmp) {
         snprintf(response_buf, buf_size, "Error: Failed to build request");
+        return ESP_ERR_NO_MEM;
+    }
+    char *post_data = psram_strdup_or_malloc(post_data_tmp);
+    free(post_data_tmp);
+    if (!post_data) {
+        snprintf(response_buf, buf_size, "Error: Out of memory");
         return ESP_ERR_NO_MEM;
     }
 
@@ -541,7 +565,7 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         snprintf(response_buf, buf_size, "API error (HTTP %d): %.200s",
                  status, rb.data ? rb.data : "");
         resp_buf_free(&rb);
-        return ESP_FAIL;
+        return (status == 401) ? ESP_ERR_INVALID_STATE : ESP_FAIL;
     }
 
     /* Parse JSON response */
@@ -596,7 +620,11 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    if (provider_is_openai()) {
+        cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
+    } else {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    }
 
     if (provider_is_openai()) {
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
@@ -625,8 +653,11 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         }
     }
 
-    char *post_data = cJSON_PrintUnformatted(body);
+    char *post_data_tmp = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
+    if (!post_data_tmp) return ESP_ERR_NO_MEM;
+    char *post_data = psram_strdup_or_malloc(post_data_tmp);
+    free(post_data_tmp);
     if (!post_data) return ESP_ERR_NO_MEM;
 
     ESP_LOGI(TAG, "Calling LLM API with tools (provider: %s, model: %s, body: %d bytes)",
@@ -652,7 +683,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     if (status != 200) {
         ESP_LOGE(TAG, "API error %d: %.500s", status, rb.data ? rb.data : "");
         resp_buf_free(&rb);
-        return ESP_FAIL;
+        return (status == 401) ? ESP_ERR_INVALID_STATE : ESP_FAIL;
     }
 
     /* Parse full JSON response */
@@ -794,6 +825,9 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     ESP_LOGI(TAG, "Response: %d bytes text, %d tool calls, stop=%s",
              (int)resp->text_len, resp->call_count,
              resp->tool_use ? "tool_use" : "end_turn");
+    if (resp->text && resp->text_len > 0) {
+        ESP_LOGI(TAG, "Response text preview: %.240s", resp->text);
+    }
 
     return ESP_OK;
 }

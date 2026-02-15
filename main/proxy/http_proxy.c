@@ -12,6 +12,7 @@
 #include "nvs.h"
 #include "esp_tls.h"
 #include "esp_crt_bundle.h"
+#include "esp_timer.h"
 
 static const char *TAG = "proxy";
 
@@ -23,6 +24,7 @@ __attribute__((constructor)) static void proxy_log_level(void)
 
 static char     s_proxy_host[64] = {0};
 static uint16_t s_proxy_port     = 0;
+static int64_t  s_proxy_backoff_until_us = 0;
 
 esp_err_t http_proxy_init(void)
 {
@@ -118,6 +120,16 @@ static int sock_read_line(int fd, char *buf, int max, int timeout_ms)
 /* Open TCP + CONNECT tunnel, returns socket fd or -1 */
 static int open_connect_tunnel(const char *host, int port, int timeout_ms)
 {
+    int64_t now = esp_timer_get_time();
+    if (now < s_proxy_backoff_until_us) {
+        static int64_t s_last_backoff_log_us = 0;
+        if (now - s_last_backoff_log_us > 10000000) {
+            ESP_LOGW(TAG, "Proxy backoff active");
+            s_last_backoff_log_us = now;
+        }
+        return -1;
+    }
+
     struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM };
     struct addrinfo *res = NULL;
     char port_str[8];
@@ -137,6 +149,7 @@ static int open_connect_tunnel(const char *host, int port, int timeout_ms)
 
     if (connect(sock, res->ai_addr, res->ai_addrlen) != 0) {
         ESP_LOGE(TAG, "TCP connect to proxy %s:%d failed", s_proxy_host, s_proxy_port);
+        s_proxy_backoff_until_us = esp_timer_get_time() + (int64_t)MIMI_PROXY_FAIL_BACKOFF_MS * 1000;
         freeaddrinfo(res); close(sock); return -1;
     }
     freeaddrinfo(res);
@@ -212,7 +225,11 @@ int proxy_conn_write(proxy_conn_t *conn, const char *data, int len)
 {
     int written = 0;
     while (written < len) {
-        ssize_t ret = esp_tls_conn_write(conn->tls, data + written, len - written);
+        int chunk = len - written;
+        if (chunk > 1024) {
+            chunk = 1024;
+        }
+        ssize_t ret = esp_tls_conn_write(conn->tls, data + written, chunk);
         if (ret > 0) {
             written += (int)ret;
         } else if (ret == ESP_TLS_ERR_SSL_WANT_WRITE) {

@@ -23,6 +23,91 @@
 #include "tools/tool_registry.h"
 
 static const char *TAG = "mimi";
+static bool s_services_started = false;
+static bool s_tg_started = false;
+static bool s_agent_started = false;
+static bool s_ws_started = false;
+static bool s_outbound_started = false;
+static bool s_service_retry_task_started = false;
+static StaticTask_t s_outbound_task_tcb;
+static StackType_t s_outbound_task_stack[MIMI_OUTBOUND_STACK / sizeof(StackType_t)];
+static TaskHandle_t s_outbound_task_handle = NULL;
+static void outbound_dispatch_task(void *arg);
+
+static void start_network_services(void)
+{
+    if (s_services_started) {
+        return;
+    }
+
+    if (!s_tg_started) {
+        esp_err_t err = telegram_bot_start();
+        if (err == ESP_OK) {
+            s_tg_started = true;
+        } else {
+            ESP_LOGE(TAG, "Failed to start telegram bot: %s", esp_err_to_name(err));
+        }
+    }
+
+    if (!s_agent_started) {
+        esp_err_t err = agent_loop_start();
+        if (err == ESP_OK) {
+            s_agent_started = true;
+        } else {
+            ESP_LOGE(TAG, "Failed to start agent loop: %s", esp_err_to_name(err));
+        }
+    }
+
+    if (!s_ws_started) {
+        esp_err_t err = ws_server_start();
+        if (err == ESP_OK) {
+            s_ws_started = true;
+        } else {
+            ESP_LOGE(TAG, "Failed to start WebSocket server: %s", esp_err_to_name(err));
+        }
+    }
+
+    if (!s_outbound_started) {
+        s_outbound_task_handle = xTaskCreateStaticPinnedToCore(
+            outbound_dispatch_task, "outbound",
+            MIMI_OUTBOUND_STACK / sizeof(StackType_t), NULL,
+            MIMI_OUTBOUND_PRIO, s_outbound_task_stack, &s_outbound_task_tcb, MIMI_OUTBOUND_CORE);
+        if (s_outbound_task_handle != NULL) {
+            s_outbound_started = true;
+        } else {
+            ESP_LOGE(TAG, "Failed to start outbound dispatch task");
+        }
+    }
+
+    s_services_started = s_tg_started && s_agent_started && s_ws_started && s_outbound_started;
+    if (s_services_started) {
+        ESP_LOGI(TAG, "All services started!");
+    } else {
+        ESP_LOGW(TAG, "Services partially started (tg=%d agent=%d ws=%d outbound=%d)",
+                 s_tg_started, s_agent_started, s_ws_started, s_outbound_started);
+    }
+}
+
+static void deferred_service_start_task(void *arg)
+{
+    (void)arg;
+    ESP_LOGI(TAG, "Waiting for WiFi to start network services...");
+
+    while (!s_services_started) {
+        xEventGroupWaitBits(
+            wifi_manager_get_event_group(),
+            WIFI_CONNECTED_BIT,
+            pdFALSE, pdFALSE, portMAX_DELAY);
+
+        ESP_LOGI(TAG, "WiFi connected: %s, starting/retrying services", wifi_manager_get_ip());
+        start_network_services();
+        if (!s_services_started) {
+            vTaskDelay(pdMS_TO_TICKS(5000));
+        }
+    }
+    s_service_retry_task_started = false;
+    vTaskDelete(NULL);
+}
 
 static esp_err_t init_nvs(void)
 {
@@ -122,21 +207,19 @@ void app_main(void)
         ESP_LOGI(TAG, "Waiting for WiFi connection...");
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
-
-            /* Start network-dependent services */
-            ESP_ERROR_CHECK(telegram_bot_start());
-            ESP_ERROR_CHECK(agent_loop_start());
-            ESP_ERROR_CHECK(ws_server_start());
-
-            /* Outbound dispatch task */
-            xTaskCreatePinnedToCore(
-                outbound_dispatch_task, "outbound",
-                MIMI_OUTBOUND_STACK, NULL,
-                MIMI_OUTBOUND_PRIO, NULL, MIMI_OUTBOUND_CORE);
-
-            ESP_LOGI(TAG, "All services started!");
+            start_network_services();
+            if (!s_services_started && !s_service_retry_task_started) {
+                s_service_retry_task_started = true;
+                xTaskCreatePinnedToCore(
+                    deferred_service_start_task, "svc_wait_wifi",
+                    4096, NULL, 4, NULL, 0);
+            }
         } else {
-            ESP_LOGW(TAG, "WiFi connection timeout. Check MIMI_SECRET_WIFI_SSID in mimi_secrets.h");
+            ESP_LOGW(TAG, "WiFi connection timeout. Will keep retrying and start services after connected.");
+            s_service_retry_task_started = true;
+            xTaskCreatePinnedToCore(
+                deferred_service_start_task, "svc_wait_wifi",
+                4096, NULL, 4, NULL, 0);
         }
     } else {
         ESP_LOGW(TAG, "No WiFi credentials. Set MIMI_SECRET_WIFI_SSID in mimi_secrets.h");

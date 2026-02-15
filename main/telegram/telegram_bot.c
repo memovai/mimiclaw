@@ -15,6 +15,9 @@ static const char *TAG = "telegram";
 
 static char s_bot_token[128] = MIMI_SECRET_TG_TOKEN;
 static int64_t s_update_offset = 0;
+static StaticTask_t s_tg_task_tcb;
+static StackType_t s_tg_task_stack[MIMI_TG_POLL_STACK / sizeof(StackType_t)];
+static TaskHandle_t s_tg_task_handle = NULL;
 
 /* HTTP response accumulator */
 typedef struct {
@@ -280,12 +283,15 @@ esp_err_t telegram_bot_init(void)
 
 esp_err_t telegram_bot_start(void)
 {
-    BaseType_t ret = xTaskCreatePinnedToCore(
-        telegram_poll_task, "tg_poll",
-        MIMI_TG_POLL_STACK, NULL,
-        MIMI_TG_POLL_PRIO, NULL, MIMI_TG_POLL_CORE);
+    if (s_tg_task_handle != NULL) {
+        return ESP_OK;
+    }
 
-    return (ret == pdPASS) ? ESP_OK : ESP_FAIL;
+    s_tg_task_handle = xTaskCreateStaticPinnedToCore(
+        telegram_poll_task, "tg_poll",
+        MIMI_TG_POLL_STACK / sizeof(StackType_t), NULL,
+        MIMI_TG_POLL_PRIO, s_tg_task_stack, &s_tg_task_tcb, MIMI_TG_POLL_CORE);
+    return (s_tg_task_handle != NULL) ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t telegram_send_message(const char *chat_id, const char *text)

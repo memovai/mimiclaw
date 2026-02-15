@@ -151,7 +151,7 @@ To enable web search, set a [Brave Search API key](https://brave.com/search/api/
 
 ## Also Included
 
-- **WebSocket gateway** on port 18789 — connect from your LAN with any WebSocket client
+- **WebSocket gateway** on port 8765 — connect from your LAN with any WebSocket client
 - **OTA updates** — flash new firmware over WiFi, no USB needed
 - **Dual-core** — network I/O and AI processing run on separate CPU cores
 - **HTTP proxy** — CONNECT tunnel support for restricted networks

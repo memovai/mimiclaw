@@ -2,6 +2,7 @@
 #include "tools/tool_web_search.h"
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
+#include "tools/tool_browser_use.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -129,6 +130,23 @@ esp_err_t tool_registry_init(void)
         .execute = tool_list_dir_execute,
     };
     register_tool(&ld);
+
+    /* Register browser_use */
+    mimi_tool_t bu = {
+        .name = "browser_use",
+        .description = "Bridge to a connected browser extension. Commands: get_dom_snapshot or execute_action.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+                "\"command\":{\"type\":\"string\",\"enum\":[\"get_dom_snapshot\",\"execute_action\"]},"
+                "\"maxText\":{\"type\":\"integer\",\"description\":\"Only for get_dom_snapshot\"},"
+                "\"maxElements\":{\"type\":\"integer\",\"description\":\"Only for get_dom_snapshot\"},"
+                "\"action\":{\"type\":\"object\",\"description\":\"Only for execute_action. Example: {\\\"name\\\":\\\"click\\\",\\\"selector\\\":\\\"button\\\"}\"}"
+            "},"
+            "\"required\":[\"command\"]}",
+        .execute = tool_browser_use_execute,
+    };
+    register_tool(&bu);
 
     build_tools_json();
 

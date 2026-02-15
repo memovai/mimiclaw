@@ -39,16 +39,19 @@
 #define MIMI_WIFI_MAX_RETRY          10
 #define MIMI_WIFI_RETRY_BASE_MS      1000
 #define MIMI_WIFI_RETRY_MAX_MS       30000
+#define MIMI_PROXY_CONNECT_TIMEOUT_MS 60000
+#define MIMI_PROXY_IO_TIMEOUT_MS      120000
+#define MIMI_PROXY_FAIL_BACKOFF_MS    30000
 
 /* Telegram Bot */
 #define MIMI_TG_POLL_TIMEOUT_S       30
 #define MIMI_TG_MAX_MSG_LEN          4096
-#define MIMI_TG_POLL_STACK           (12 * 1024)
+#define MIMI_TG_POLL_STACK           (8 * 1024)
 #define MIMI_TG_POLL_PRIO            5
 #define MIMI_TG_POLL_CORE            0
 
 /* Agent Loop */
-#define MIMI_AGENT_STACK             (12 * 1024)
+#define MIMI_AGENT_STACK             (16 * 1024)
 #define MIMI_AGENT_PRIO              6
 #define MIMI_AGENT_CORE              1
 #define MIMI_AGENT_MAX_HISTORY       20
@@ -69,7 +72,7 @@
 
 /* Message Bus */
 #define MIMI_BUS_QUEUE_LEN           8
-#define MIMI_OUTBOUND_STACK          (8 * 1024)
+#define MIMI_OUTBOUND_STACK          (4 * 1024)
 #define MIMI_OUTBOUND_PRIO           5
 #define MIMI_OUTBOUND_CORE           0
 
@@ -85,8 +88,10 @@
 #define MIMI_SESSION_MAX_MSGS        20
 
 /* WebSocket Gateway */
-#define MIMI_WS_PORT                 18789
+#define MIMI_WS_PORT                 8765
 #define MIMI_WS_MAX_CLIENTS          4
+#define MIMI_HTTPD_STACK             (8 * 1024)
+#define MIMI_WS_PARSE_STACK          (8 * 1024)
 
 /* Serial CLI */
 #define MIMI_CLI_STACK               (4 * 1024)

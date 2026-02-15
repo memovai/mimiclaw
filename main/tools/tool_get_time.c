@@ -64,7 +64,7 @@ static bool parse_and_set_time(const char *date_str, char *out, size_t out_size)
 /* Fetch time via proxy: HEAD request to api.telegram.org, parse Date header */
 static esp_err_t fetch_time_via_proxy(char *out, size_t out_size)
 {
-    proxy_conn_t *conn = proxy_conn_open("api.telegram.org", 443, 10000);
+    proxy_conn_t *conn = proxy_conn_open("api.telegram.org", 443, MIMI_PROXY_CONNECT_TIMEOUT_MS);
     if (!conn) return ESP_ERR_HTTP_CONNECT;
 
     const char *req =
@@ -80,7 +80,7 @@ static esp_err_t fetch_time_via_proxy(char *out, size_t out_size)
     char buf[1024];
     int total = 0;
     while (total < (int)sizeof(buf) - 1) {
-        int n = proxy_conn_read(conn, buf + total, sizeof(buf) - 1 - total, 10000);
+        int n = proxy_conn_read(conn, buf + total, sizeof(buf) - 1 - total, MIMI_PROXY_IO_TIMEOUT_MS);
         if (n <= 0) break;
         total += n;
         buf[total] = '\0';
