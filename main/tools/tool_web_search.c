@@ -1,5 +1,6 @@
 #include "tool_web_search.h"
 #include "mimi_config.h"
+#include "mimi_secrets.h"
 #include "proxy/http_proxy.h"
 
 #include <string.h>
@@ -14,9 +15,23 @@
 static const char *TAG = "web_search";
 
 static char s_search_key[128] = {0};
+static char s_volcengine_key[128] = {0};
+static char s_volcengine_model[64] = "doubao-seed-1-8-251228";
 
-#define SEARCH_BUF_SIZE     (16 * 1024)
+#define SEARCH_BUF_SIZE     (32 * 1024)
 #define SEARCH_RESULT_COUNT 5
+
+bool tool_web_search_is_available(void)
+{
+    return (s_search_key[0] != '\0' || s_volcengine_key[0] != '\0');
+}
+
+const char *tool_web_search_get_provider(void)
+{
+    if (s_search_key[0]) return "Brave Search";
+    if (s_volcengine_key[0]) return "Volcengine Web Search";
+    return "none";
+}
 
 /* ── Response accumulator ─────────────────────────────────────── */
 
@@ -44,24 +59,62 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 
 esp_err_t tool_web_search_init(void)
 {
-    /* Start with build-time default */
+    ESP_LOGI(TAG, "Initializing web search tool...");
+
     if (MIMI_SECRET_SEARCH_KEY[0] != '\0') {
         strncpy(s_search_key, MIMI_SECRET_SEARCH_KEY, sizeof(s_search_key) - 1);
+        ESP_LOGI(TAG, "Brave Search key from secrets: %d chars", (int)strlen(s_search_key));
     }
 
-    /* NVS overrides take highest priority (set via CLI) */
+    if (MIMI_SECRET_VOLCENGINE_API_KEY[0] != '\0') {
+        strncpy(s_volcengine_key, MIMI_SECRET_VOLCENGINE_API_KEY, sizeof(s_volcengine_key) - 1);
+        ESP_LOGI(TAG, "Volcengine key from secrets: %d chars", (int)strlen(s_volcengine_key));
+    }
+    if (MIMI_SECRET_VOLCENGINE_MODEL[0] != '\0') {
+        strncpy(s_volcengine_model, MIMI_SECRET_VOLCENGINE_MODEL, sizeof(s_volcengine_model) - 1);
+        ESP_LOGI(TAG, "Volcengine model from secrets: %s", s_volcengine_model);
+    }
+
     nvs_handle_t nvs;
-    if (nvs_open(MIMI_NVS_SEARCH, NVS_READONLY, &nvs) == ESP_OK) {
+    esp_err_t err = nvs_open(MIMI_NVS_SEARCH, NVS_READONLY, &nvs);
+    if (err == ESP_OK) {
         char tmp[128] = {0};
         size_t len = sizeof(tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_search_key, tmp, sizeof(s_search_key) - 1);
+            ESP_LOGI(TAG, "Brave Search key from NVS: %d chars", (int)strlen(s_search_key));
         }
         nvs_close(nvs);
+    } else {
+        ESP_LOGI(TAG, "No Brave Search key in NVS (err=%d)", err);
     }
 
+    err = nvs_open(MIMI_NVS_LLM, NVS_READONLY, &nvs);
+    if (err == ESP_OK) {
+        char tmp[128] = {0};
+        size_t len = sizeof(tmp);
+        esp_err_t key_err = nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len);
+        if (key_err == ESP_OK && tmp[0]) {
+            strncpy(s_volcengine_key, tmp, sizeof(s_volcengine_key) - 1);
+            ESP_LOGI(TAG, "Volcengine key from NVS: %d chars", (int)strlen(s_volcengine_key));
+        }
+        len = sizeof(s_volcengine_model);
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_MODEL, s_volcengine_model, &len) == ESP_OK) {
+            ESP_LOGI(TAG, "Volcengine model from NVS: %s", s_volcengine_model);
+        }
+        nvs_close(nvs);
+    } else {
+        ESP_LOGI(TAG, "No NVS LLM config (err=%d), using secrets", err);
+    }
+
+    ESP_LOGI(TAG, "Final state: Brave=%s, Volcengine=%s",
+             s_search_key[0] ? "configured" : "none",
+             s_volcengine_key[0] ? "configured" : "none");
+
     if (s_search_key[0]) {
-        ESP_LOGI(TAG, "Web search initialized (key configured)");
+        ESP_LOGI(TAG, "Web search initialized (Brave Search key configured)");
+    } else if (s_volcengine_key[0]) {
+        ESP_LOGI(TAG, "Web search initialized (Volcengine fallback enabled)");
     } else {
         ESP_LOGW(TAG, "No search API key. Use CLI: set_search_key <KEY>");
     }
@@ -222,16 +275,142 @@ static esp_err_t search_via_proxy(const char *path, search_buf_t *sb)
     return ESP_OK;
 }
 
+/* ── Volcengine Web Search ────────────────────────────────────── */
+
+static esp_err_t volcengine_web_search(const char *query, search_buf_t *sb)
+{
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "model", s_volcengine_model);
+
+    cJSON *input = cJSON_CreateArray();
+    cJSON *msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(msg, "role", "user");
+    cJSON_AddStringToObject(msg, "content", query);
+    cJSON_AddItemToArray(input, msg);
+    cJSON_AddItemToObject(body, "input", input);
+
+    cJSON *tools = cJSON_CreateArray();
+    cJSON *web_search_tool = cJSON_CreateObject();
+    cJSON_AddStringToObject(web_search_tool, "type", "web_search");
+    cJSON_AddNumberToObject(web_search_tool, "max_keyword", 2);
+    cJSON_AddItemToArray(tools, web_search_tool);
+    cJSON_AddItemToObject(body, "tools", tools);
+
+    char *post_data = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    if (!post_data) return ESP_ERR_NO_MEM;
+
+    ESP_LOGI(TAG, "Volcengine web search request: %s", query);
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s%s", MIMI_VOLCENGINE_API_URL, MIMI_VOLCENGINE_API_PATH);
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .event_handler = http_event_handler,
+        .user_data = sb,
+        .timeout_ms = 60000,
+        .buffer_size = 8192,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        free(post_data);
+        return ESP_FAIL;
+    }
+
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    char auth[192];
+    snprintf(auth, sizeof(auth), "Bearer %s", s_volcengine_key);
+    esp_http_client_set_header(client, "Authorization", auth);
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+    free(post_data);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (status != 200) {
+        ESP_LOGE(TAG, "Volcengine API returned %d, response: %s", status, sb->data);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Volcengine API response: %d bytes", (int)sb->len);
+    return ESP_OK;
+}
+
+static void format_volcengine_results(cJSON *root, char *output, size_t output_size)
+{
+    cJSON *output_arr = cJSON_GetObjectItem(root, "output");
+    if (!output_arr || !cJSON_IsArray(output_arr)) {
+        ESP_LOGW(TAG, "No 'output' array in response");
+        snprintf(output, output_size, "No results from Volcengine.");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Parsing output array with %d items", cJSON_GetArraySize(output_arr));
+
+    size_t off = 0;
+    cJSON *item;
+    cJSON_ArrayForEach(item, output_arr) {
+        cJSON *type = cJSON_GetObjectItem(item, "type");
+        if (!type || !cJSON_IsString(type)) {
+            ESP_LOGW(TAG, "Item has no type");
+            continue;
+        }
+
+        ESP_LOGI(TAG, "Output item type: %s", type->valuestring);
+
+        if (strcmp(type->valuestring, "message") == 0) {
+            cJSON *content = cJSON_GetObjectItem(item, "content");
+            if (content && cJSON_IsArray(content)) {
+                ESP_LOGI(TAG, "Message has %d content blocks", cJSON_GetArraySize(content));
+                cJSON *block;
+                cJSON_ArrayForEach(block, content) {
+                    cJSON *btype = cJSON_GetObjectItem(block, "type");
+                    if (btype && cJSON_IsString(btype)) {
+                        ESP_LOGI(TAG, "Content block type: %s", btype->valuestring);
+                        if (strcmp(btype->valuestring, "output_text") == 0) {
+                            cJSON *text = cJSON_GetObjectItem(block, "text");
+                            if (text && cJSON_IsString(text)) {
+                                size_t tlen = strlen(text->valuestring);
+                                ESP_LOGI(TAG, "Found output_text: %d chars", (int)tlen);
+                                if (off + tlen < output_size - 1) {
+                                    memcpy(output + off, text->valuestring, tlen);
+                                    off += tlen;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (strcmp(type->valuestring, "web_search_call") == 0) {
+            cJSON *action = cJSON_GetObjectItem(item, "action");
+            if (action && cJSON_IsString(action)) {
+                ESP_LOGI(TAG, "Web search call action: %s", action->valuestring);
+            }
+        }
+    }
+    output[off] = '\0';
+
+    ESP_LOGI(TAG, "Formatted result: %d bytes", (int)off);
+
+    if (off == 0) {
+        snprintf(output, output_size, "No search results found.");
+    }
+}
+
 /* ── Execute ──────────────────────────────────────────────────── */
 
 esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t output_size)
 {
-    if (s_search_key[0] == '\0') {
-        snprintf(output, output_size, "Error: No search API key configured. Set MIMI_SECRET_SEARCH_KEY in mimi_secrets.h");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    /* Parse input to get query */
     cJSON *input = cJSON_Parse(input_json);
     if (!input) {
         snprintf(output, output_size, "Error: Invalid input JSON");
@@ -245,55 +424,82 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_LOGI(TAG, "Searching: %s", query->valuestring);
+    const char *query_str = query->valuestring;
+    ESP_LOGI(TAG, "Searching: %s", query_str);
 
-    /* Build URL */
-    char encoded_query[256];
-    url_encode(query->valuestring, encoded_query, sizeof(encoded_query));
-    cJSON_Delete(input);
-
-    char path[384];
-    snprintf(path, sizeof(path),
-             "/res/v1/web/search?q=%s&count=%d", encoded_query, SEARCH_RESULT_COUNT);
-
-    /* Allocate response buffer from PSRAM */
     search_buf_t sb = {0};
     sb.data = heap_caps_calloc(1, SEARCH_BUF_SIZE, MALLOC_CAP_SPIRAM);
     if (!sb.data) {
+        cJSON_Delete(input);
         snprintf(output, output_size, "Error: Out of memory");
         return ESP_ERR_NO_MEM;
     }
     sb.cap = SEARCH_BUF_SIZE;
 
-    /* Make HTTP request */
-    esp_err_t err;
-    if (http_proxy_is_enabled()) {
-        err = search_via_proxy(path, &sb);
-    } else {
-        char url[512];
-        snprintf(url, sizeof(url), "https://api.search.brave.com%s", path);
-        err = search_direct(url, &sb);
+    esp_err_t err = ESP_FAIL;
+    bool used_volcengine = false;
+
+    ESP_LOGI(TAG, "Search keys: Brave=%s, Volcengine=%s",
+             s_search_key[0] ? "configured" : "none",
+             s_volcengine_key[0] ? "configured" : "none");
+
+    if (s_search_key[0]) {
+        char encoded_query[256];
+        url_encode(query_str, encoded_query, sizeof(encoded_query));
+
+        char path[384];
+        snprintf(path, sizeof(path),
+                 "/res/v1/web/search?q=%s&count=%d", encoded_query, SEARCH_RESULT_COUNT);
+
+        if (http_proxy_is_enabled()) {
+            err = search_via_proxy(path, &sb);
+        } else {
+            char url[512];
+            snprintf(url, sizeof(url), "https://api.search.brave.com%s", path);
+            err = search_direct(url, &sb);
+        }
+
+        if (err == ESP_OK) {
+            cJSON *root = cJSON_Parse(sb.data);
+            if (root) {
+                format_results(root, output, output_size);
+                cJSON_Delete(root);
+            } else {
+                err = ESP_FAIL;
+            }
+        }
     }
 
+    if (err != ESP_OK && s_volcengine_key[0]) {
+        ESP_LOGI(TAG, "Brave Search failed, trying Volcengine web search...");
+        memset(sb.data, 0, sb.cap);
+        sb.len = 0;
+
+        err = volcengine_web_search(query_str, &sb);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Parsing Volcengine response...");
+            cJSON *root = cJSON_Parse(sb.data);
+            if (root) {
+                format_volcengine_results(root, output, output_size);
+                cJSON_Delete(root);
+            } else {
+                ESP_LOGE(TAG, "Failed to parse JSON response: %.200s", sb.data);
+                snprintf(output, output_size, "Error: Failed to parse search results");
+            }
+            used_volcengine = true;
+        }
+    }
+
+    cJSON_Delete(input);
+    free(sb.data);
+
     if (err != ESP_OK) {
-        free(sb.data);
-        snprintf(output, output_size, "Error: Search request failed");
+        snprintf(output, output_size, "Error: Search request failed (no API key available)");
         return err;
     }
 
-    /* Parse and format results */
-    cJSON *root = cJSON_Parse(sb.data);
-    free(sb.data);
-
-    if (!root) {
-        snprintf(output, output_size, "Error: Failed to parse search results");
-        return ESP_FAIL;
-    }
-
-    format_results(root, output, output_size);
-    cJSON_Delete(root);
-
-    ESP_LOGI(TAG, "Search complete, %d bytes result", (int)strlen(output));
+    ESP_LOGI(TAG, "Search complete (%s), %d bytes result",
+             used_volcengine ? "Volcengine" : "Brave", (int)strlen(output));
     return ESP_OK;
 }
 
@@ -307,5 +513,31 @@ esp_err_t tool_web_search_set_key(const char *api_key)
 
     strncpy(s_search_key, api_key, sizeof(s_search_key) - 1);
     ESP_LOGI(TAG, "Search API key saved");
+    return ESP_OK;
+}
+
+esp_err_t tool_web_search_set_volcengine_key(const char *api_key)
+{
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_LLM, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_API_KEY, api_key));
+    ESP_ERROR_CHECK(nvs_commit(nvs));
+    nvs_close(nvs);
+
+    strncpy(s_volcengine_key, api_key, sizeof(s_volcengine_key) - 1);
+    ESP_LOGI(TAG, "Volcengine API key saved");
+    return ESP_OK;
+}
+
+esp_err_t tool_web_search_set_volcengine_model(const char *model)
+{
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_LLM, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_MODEL, model));
+    ESP_ERROR_CHECK(nvs_commit(nvs));
+    nvs_close(nvs);
+
+    strncpy(s_volcengine_model, model, sizeof(s_volcengine_model) - 1);
+    ESP_LOGI(TAG, "Volcengine model saved: %s", model);
     return ESP_OK;
 }

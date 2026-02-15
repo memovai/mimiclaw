@@ -1,5 +1,8 @@
 #include "llm_proxy.h"
+#include "llm_provider.h"
+#include "provider/provider.h"
 #include "mimi_config.h"
+#include "mimi_secrets.h"
 #include "proxy/http_proxy.h"
 
 #include <string.h>
@@ -85,26 +88,53 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+static bool provider_is_volcengine(void)
+{
+    return strcmp(s_provider, "volcengine") == 0;
+}
+
 static const char *llm_api_url(void)
 {
-    return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
+    static char url_buf[256];
+    if (provider_is_openai()) {
+        snprintf(url_buf, sizeof(url_buf), "%s%s", MIMI_VOLCENGINE_CODING_BASE_URL, MIMI_VOLCENGINE_OPENAI_CODING_PATH);
+        return url_buf;
+    } else if (provider_is_volcengine()) {
+        snprintf(url_buf, sizeof(url_buf), "%s%s", MIMI_VOLCENGINE_API_URL, MIMI_VOLCENGINE_API_PATH);
+        return url_buf;
+    }
+    return MIMI_LLM_API_URL;
 }
 
 static const char *llm_api_host(void)
 {
-    return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
+    if (provider_is_openai()) {
+        //return "api.openai.com";
+        return "ark.cn-beijing.volces.com";
+    } else if (provider_is_volcengine()) {
+        return "ark.cn-beijing.volces.com";
+    }
+    return "api.anthropic.com";
 }
 
 static const char *llm_api_path(void)
 {
-    return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
+    if (provider_is_openai()) {
+        return MIMI_VOLCENGINE_OPENAI_CODING_PATH;
+    } else if (provider_is_volcengine()) {
+        return MIMI_VOLCENGINE_API_PATH;
+    }
+    return "/v1/messages";
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
 
 esp_err_t llm_proxy_init(void)
 {
-    /* Start with build-time defaults */
+    provider_anthropic_init();
+    provider_openai_init();
+    provider_volcengine_init();
+
     if (MIMI_SECRET_API_KEY[0] != '\0') {
         safe_copy(s_api_key, sizeof(s_api_key), MIMI_SECRET_API_KEY);
     }
@@ -115,7 +145,6 @@ esp_err_t llm_proxy_init(void)
         safe_copy(s_provider, sizeof(s_provider), MIMI_SECRET_MODEL_PROVIDER);
     }
 
-    /* NVS overrides take highest priority (set via CLI) */
     nvs_handle_t nvs;
     if (nvs_open(MIMI_NVS_LLM, NVS_READONLY, &nvs) == ESP_OK) {
         char tmp[128] = {0};
@@ -134,6 +163,16 @@ esp_err_t llm_proxy_init(void)
             safe_copy(s_provider, sizeof(s_provider), tmp);
         }
         nvs_close(nvs);
+    }
+
+    llm_provider_set_default(s_provider);
+
+    if (provider_is_openai()) {
+        provider_openai_set_model(s_model);
+    } else if (provider_is_volcengine()) {
+        provider_volcengine_set_model(s_model);
+    } else {
+        provider_anthropic_set_model(s_model);
     }
 
     if (s_api_key[0]) {
@@ -163,7 +202,14 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
+
     if (provider_is_openai()) {
+        if (s_api_key[0]) {
+            char auth[192];
+            snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
+            esp_http_client_set_header(client, "Authorization", auth);
+        }
+    } else if (provider_is_volcengine()) {
         if (s_api_key[0]) {
             char auth[192];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
@@ -191,7 +237,7 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
     int body_len = strlen(post_data);
     char header[512];
     int hlen = 0;
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_volcengine()) {
         hlen = snprintf(header, sizeof(header),
             "POST %s HTTP/1.1\r\n"
             "Host: %s\r\n"
@@ -249,9 +295,17 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
 
 /* ── Shared HTTP dispatch ─────────────────────────────────────── */
 
+static bool llm_use_proxy(void)
+{
+    if (strcmp(MIMI_SECRET_LLM_USE_PROXY, "no") == 0) {
+        return false;
+    }
+    return http_proxy_is_enabled();
+}
+
 static esp_err_t llm_http_call(const char *post_data, resp_buf_t *rb, int *out_status)
 {
-    if (http_proxy_is_enabled()) {
+    if (llm_use_proxy()) {
         return llm_http_via_proxy(post_data, rb, out_status);
     } else {
         return llm_http_direct(post_data, rb, out_status);
@@ -478,7 +532,14 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+
+    if (provider_is_openai()) {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    } else if (provider_is_volcengine()) {
+        cJSON_AddNumberToObject(body, "max_output_tokens", MIMI_LLM_MAX_TOKENS);
+    } else {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    }
 
     if (provider_is_openai()) {
         cJSON *messages = cJSON_Parse(messages_json);
@@ -492,6 +553,11 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
         cJSON_Delete(messages);
         cJSON_AddItemToObject(body, "messages", openai_msgs);
+    } else if (provider_is_volcengine()) {
+        cJSON *msgs_json = cJSON_Parse(messages_json);
+        cJSON *msgs = convert_messages_volc(system_prompt, msgs_json);
+        cJSON_AddItemToObject(body, "input", msgs);
+        if (msgs_json) cJSON_Delete(msgs_json);
     } else {
         cJSON_AddStringToObject(body, "system", system_prompt);
         cJSON *messages = cJSON_Parse(messages_json);
@@ -537,8 +603,11 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
     }
 
     if (status != 200) {
-        ESP_LOGE(TAG, "API returned status %d", status);
-        snprintf(response_buf, buf_size, "API error (HTTP %d): %.200s",
+        ESP_LOGE(TAG, "API returned status %d, response len=%d", status, (int)(rb.data ? rb.len : 0));
+        if (rb.data && rb.len > 0) {
+            ESP_LOGE(TAG, "Response: %.1000s", rb.data);
+        }
+        snprintf(response_buf, buf_size, "API error (HTTP %d): %.1000s",
                  status, rb.data ? rb.data : "");
         resp_buf_free(&rb);
         return ESP_FAIL;
@@ -596,7 +665,14 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+
+    if (provider_is_openai()) {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    } else if (provider_is_volcengine()) {
+        cJSON_AddNumberToObject(body, "max_output_tokens", MIMI_LLM_MAX_TOKENS);
+    } else {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    }
 
     if (provider_is_openai()) {
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
@@ -607,6 +683,36 @@ esp_err_t llm_chat_tools(const char *system_prompt,
             if (tools) {
                 cJSON_AddItemToObject(body, "tools", tools);
                 cJSON_AddStringToObject(body, "tool_choice", "auto");
+            }
+        }
+    } else if (provider_is_volcengine()) {
+        cJSON *msgs = convert_messages_volc(system_prompt, messages);
+        cJSON_AddItemToObject(body, "input", msgs);
+
+        if (tools_json) {
+            cJSON *tools = cJSON_Parse(tools_json);
+            if (tools && cJSON_IsArray(tools)) {
+                cJSON *volc_tools = cJSON_CreateArray();
+                cJSON *tool;
+                cJSON_ArrayForEach(tool, tools) {
+                    cJSON *name = cJSON_GetObjectItem(tool, "name");
+                    cJSON *desc = cJSON_GetObjectItem(tool, "description");
+                    cJSON *schema = cJSON_GetObjectItem(tool, "input_schema");
+                    if (!name) continue;
+
+                    cJSON *t = cJSON_CreateObject();
+                    cJSON_AddStringToObject(t, "type", "function");
+                    cJSON_AddStringToObject(t, "name", name->valuestring);
+                    if (desc && cJSON_IsString(desc)) {
+                        cJSON_AddStringToObject(t, "description", desc->valuestring);
+                    }
+                    if (schema) {
+                        cJSON_AddItemToObject(t, "parameters", cJSON_Duplicate(schema, 1));
+                    }
+                    cJSON_AddItemToArray(volc_tools, t);
+                }
+                cJSON_AddItemToObject(body, "tools", volc_tools);
+                cJSON_Delete(tools);
             }
         }
     } else {
@@ -631,6 +737,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
     ESP_LOGI(TAG, "Calling LLM API with tools (provider: %s, model: %s, body: %d bytes)",
              s_provider, s_model, (int)strlen(post_data));
+    ESP_LOGD(TAG, "Request body: %.500s", post_data);
 
     /* HTTP call */
     resp_buf_t rb;
@@ -650,12 +757,16 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     }
 
     if (status != 200) {
-        ESP_LOGE(TAG, "API error %d: %.500s", status, rb.data ? rb.data : "");
+        ESP_LOGE(TAG, "API error %d, response len=%d", status, (int)(rb.data ? rb.len : 0));
+        if (rb.data && rb.len > 0) {
+            ESP_LOGE(TAG, "Response: %.1500s", rb.data);
+        }
         resp_buf_free(&rb);
         return ESP_FAIL;
     }
 
     /* Parse full JSON response */
+    ESP_LOGD(TAG, "API response: %.500s", rb.data);
     cJSON *root = cJSON_Parse(rb.data);
     resp_buf_free(&rb);
 
@@ -714,6 +825,67 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                     if (resp->call_count > 0) {
                         resp->tool_use = true;
                     }
+                }
+            }
+        }
+    } else if (provider_is_volcengine()) {
+        cJSON *output = cJSON_GetObjectItem(root, "output");
+        if (output && cJSON_IsArray(output)) {
+            cJSON *item;
+            cJSON_ArrayForEach(item, output) {
+                cJSON *type = cJSON_GetObjectItem(item, "type");
+                if (!type || !cJSON_IsString(type)) continue;
+
+                if (strcmp(type->valuestring, "message") == 0) {
+                    cJSON *content = cJSON_GetObjectItem(item, "content");
+                    if (content && cJSON_IsArray(content)) {
+                        size_t total_text = 0;
+                        cJSON *block;
+                        cJSON_ArrayForEach(block, content) {
+                            cJSON *btype = cJSON_GetObjectItem(block, "type");
+                            if (btype && cJSON_IsString(btype) && strcmp(btype->valuestring, "output_text") == 0) {
+                                cJSON *text = cJSON_GetObjectItem(block, "text");
+                                if (text && cJSON_IsString(text)) {
+                                    total_text += strlen(text->valuestring);
+                                }
+                            }
+                        }
+                        if (total_text > 0) {
+                            resp->text = calloc(1, total_text + 1);
+                            if (resp->text) {
+                                cJSON_ArrayForEach(block, content) {
+                                    cJSON *btype = cJSON_GetObjectItem(block, "type");
+                                    if (!btype || !cJSON_IsString(btype) || strcmp(btype->valuestring, "output_text") != 0) continue;
+                                    cJSON *text = cJSON_GetObjectItem(block, "text");
+                                    if (!text || !cJSON_IsString(text)) continue;
+                                    size_t tlen = strlen(text->valuestring);
+                                    memcpy(resp->text + resp->text_len, text->valuestring, tlen);
+                                    resp->text_len += tlen;
+                                }
+                                resp->text[resp->text_len] = '\0';
+                            }
+                        }
+                    }
+                } else if (strcmp(type->valuestring, "function_call") == 0) {
+                    if (resp->call_count >= MIMI_MAX_TOOL_CALLS) continue;
+                    llm_tool_call_t *call = &resp->calls[resp->call_count];
+                    cJSON *id = cJSON_GetObjectItem(item, "id");
+                    cJSON *name = cJSON_GetObjectItem(item, "name");
+                    cJSON *args = cJSON_GetObjectItem(item, "arguments");
+                    if (id && cJSON_IsString(id)) {
+                        strncpy(call->id, id->valuestring, sizeof(call->id) - 1);
+                    }
+                    if (name && cJSON_IsString(name)) {
+                        strncpy(call->name, name->valuestring, sizeof(call->name) - 1);
+                    }
+                    if (args && cJSON_IsString(args)) {
+                        call->input = strdup(args->valuestring);
+                        if (call->input) {
+                            call->input_len = strlen(call->input);
+                        }
+                    }
+                    resp->call_count++;
+                    resp->tool_use = true;
                 }
             }
         }
@@ -822,6 +994,15 @@ esp_err_t llm_set_model(const char *model)
     nvs_close(nvs);
 
     safe_copy(s_model, sizeof(s_model), model);
+
+    if (provider_is_openai()) {
+        provider_openai_set_model(model);
+    } else if (provider_is_volcengine()) {
+        provider_volcengine_set_model(model);
+    } else {
+        provider_anthropic_set_model(model);
+    }
+
     ESP_LOGI(TAG, "Model set to: %s", s_model);
     return ESP_OK;
 }
@@ -835,6 +1016,7 @@ esp_err_t llm_set_provider(const char *provider)
     nvs_close(nvs);
 
     safe_copy(s_provider, sizeof(s_provider), provider);
+    llm_provider_set_default(provider);
     ESP_LOGI(TAG, "Provider set to: %s", s_provider);
     return ESP_OK;
 }

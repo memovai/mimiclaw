@@ -1,7 +1,9 @@
 #include "serial_cli.h"
 #include "mimi_config.h"
+#include "mimi_secrets.h"
 #include "wifi/wifi_manager.h"
-#include "telegram/telegram_bot.h"
+#include "channels/telegram/telegram_bot.h"
+#include "channels/feishu/feishu_bot.h"
 #include "llm/llm_proxy.h"
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
@@ -63,6 +65,26 @@ static int cmd_set_tg_token(int argc, char **argv)
     }
     telegram_set_token(tg_token_args.token->sval[0]);
     printf("Telegram bot token saved.\n");
+    return 0;
+}
+
+/* --- set_feishu_creds command --- */
+static struct {
+    struct arg_str *app_id;
+    struct arg_str *app_secret;
+    struct arg_end *end;
+} feishu_creds_args;
+
+static int cmd_set_feishu_creds(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&feishu_creds_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, feishu_creds_args.end, argv[0]);
+        return 1;
+    }
+    feishu_set_credentials(feishu_creds_args.app_id->sval[0],
+                          feishu_creds_args.app_secret->sval[0]);
+    printf("Feishu credentials saved.\n");
     return 0;
 }
 
@@ -200,6 +222,7 @@ static int cmd_heap_info(int argc, char **argv)
 static struct {
     struct arg_str *host;
     struct arg_int *port;
+    struct arg_str *type;
     struct arg_end *end;
 } proxy_args;
 
@@ -210,7 +233,9 @@ static int cmd_set_proxy(int argc, char **argv)
         arg_print_errors(stderr, proxy_args.end, argv[0]);
         return 1;
     }
-    http_proxy_set(proxy_args.host->sval[0], (uint16_t)proxy_args.port->ival[0]);
+    http_proxy_set(proxy_args.host->sval[0], 
+                   (uint16_t)proxy_args.port->ival[0],
+                   proxy_args.type ? proxy_args.type->sval[0] : "http");
     printf("Proxy set. Restart to apply.\n");
     return 0;
 }
@@ -238,6 +263,42 @@ static int cmd_set_search_key(int argc, char **argv)
     }
     tool_web_search_set_key(search_key_args.key->sval[0]);
     printf("Search API key saved.\n");
+    return 0;
+}
+
+/* --- set_volcengine_key command --- */
+static struct {
+    struct arg_str *key;
+    struct arg_end *end;
+} volcengine_key_args;
+
+static int cmd_set_volcengine_key(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&volcengine_key_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, volcengine_key_args.end, argv[0]);
+        return 1;
+    }
+    tool_web_search_set_volcengine_key(volcengine_key_args.key->sval[0]);
+    printf("Volcengine API key saved.\n");
+    return 0;
+}
+
+/* --- set_volcengine_model command --- */
+static struct {
+    struct arg_str *model;
+    struct arg_end *end;
+} volcengine_model_args;
+
+static int cmd_set_volcengine_model(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&volcengine_model_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, volcengine_model_args.end, argv[0]);
+        return 1;
+    }
+    tool_web_search_set_volcengine_model(volcengine_model_args.model->sval[0]);
+    printf("Volcengine model saved.\n");
     return 0;
 }
 
@@ -294,6 +355,8 @@ static int cmd_config_show(int argc, char **argv)
     print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
     print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
+    print_config("Volcengine Key", MIMI_NVS_LLM, MIMI_NVS_KEY_API_KEY, MIMI_SECRET_VOLCENGINE_API_KEY, true);
+    print_config("Volcengine Model", MIMI_NVS_LLM, MIMI_NVS_KEY_MODEL, MIMI_SECRET_VOLCENGINE_MODEL, false);
     printf("=============================\n");
     return 0;
 }
@@ -379,6 +442,18 @@ esp_err_t serial_cli_init(void)
     };
     esp_console_cmd_register(&tg_token_cmd);
 
+    /* set_feishu_creds */
+    feishu_creds_args.app_id = arg_str1(NULL, NULL, "<app_id>", "Feishu App ID");
+    feishu_creds_args.app_secret = arg_str1(NULL, NULL, "<app_secret>", "Feishu App Secret");
+    feishu_creds_args.end = arg_end(2);
+    esp_console_cmd_t feishu_creds_cmd = {
+        .command = "set_feishu_creds",
+        .help = "Set Feishu app credentials (app_id app_secret)",
+        .func = &cmd_set_feishu_creds,
+        .argtable = &feishu_creds_args,
+    };
+    esp_console_cmd_register(&feishu_creds_cmd);
+
     /* set_api_key */
     api_key_args.key = arg_str1(NULL, NULL, "<key>", "LLM API key");
     api_key_args.end = arg_end(1);
@@ -402,7 +477,7 @@ esp_err_t serial_cli_init(void)
     esp_console_cmd_register(&model_cmd);
 
     /* set_model_provider */
-    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai)");
+    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai|volcengine)");
     provider_args.end = arg_end(1);
     esp_console_cmd_t provider_cmd = {
         .command = "set_model_provider",
@@ -469,10 +544,33 @@ esp_err_t serial_cli_init(void)
     };
     esp_console_cmd_register(&search_key_cmd);
 
+    /* set_volcengine_key */
+    volcengine_key_args.key = arg_str1(NULL, NULL, "<key>", "Volcengine API key");
+    volcengine_key_args.end = arg_end(1);
+    esp_console_cmd_t volcengine_key_cmd = {
+        .command = "set_volcengine_key",
+        .help = "Set Volcengine API key for web search fallback",
+        .func = &cmd_set_volcengine_key,
+        .argtable = &volcengine_key_args,
+    };
+    esp_console_cmd_register(&volcengine_key_cmd);
+
+    /* set_volcengine_model */
+    volcengine_model_args.model = arg_str1(NULL, NULL, "<model>", "Volcengine model name");
+    volcengine_model_args.end = arg_end(1);
+    esp_console_cmd_t volcengine_model_cmd = {
+        .command = "set_volcengine_model",
+        .help = "Set Volcengine model for web search",
+        .func = &cmd_set_volcengine_model,
+        .argtable = &volcengine_model_args,
+    };
+    esp_console_cmd_register(&volcengine_model_cmd);
+
     /* set_proxy */
     proxy_args.host = arg_str1(NULL, NULL, "<host>", "Proxy host/IP");
     proxy_args.port = arg_int1(NULL, NULL, "<port>", "Proxy port");
-    proxy_args.end = arg_end(2);
+    proxy_args.type = arg_str0(NULL, NULL, "<type>", "Proxy type (http/socks5)");
+    proxy_args.end = arg_end(3);
     esp_console_cmd_t proxy_cmd = {
         .command = "set_proxy",
         .help = "Set HTTP proxy (e.g. set_proxy 192.168.1.83 7897)",

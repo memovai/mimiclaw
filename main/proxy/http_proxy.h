@@ -15,9 +15,9 @@ esp_err_t http_proxy_init(void);
 bool http_proxy_is_enabled(void);
 
 /**
- * Save proxy host and port to NVS.
+ * Save proxy host, port, and type to NVS.
  */
-esp_err_t http_proxy_set(const char *host, uint16_t port);
+esp_err_t http_proxy_set(const char *host, uint16_t port, const char *type);
 
 /**
  * Remove proxy config from NVS.

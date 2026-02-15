@@ -23,13 +23,17 @@ __attribute__((constructor)) static void proxy_log_level(void)
 
 static char     s_proxy_host[64] = {0};
 static uint16_t s_proxy_port     = 0;
+static char     s_proxy_type[8] = "http"; // "http" or "socks5"
 
 esp_err_t http_proxy_init(void)
 {
-    /* Start with build-time defaults */
+    /* Start with build-time defaults (always configure global proxy) */
     if (MIMI_SECRET_PROXY_HOST[0] != '\0' && MIMI_SECRET_PROXY_PORT[0] != '\0') {
         strncpy(s_proxy_host, MIMI_SECRET_PROXY_HOST, sizeof(s_proxy_host) - 1);
         s_proxy_port = (uint16_t)atoi(MIMI_SECRET_PROXY_PORT);
+        if (MIMI_SECRET_PROXY_TYPE[0] != '\0') {
+            strncpy(s_proxy_type, MIMI_SECRET_PROXY_TYPE, sizeof(s_proxy_type) - 1);
+        }
     }
 
     /* NVS overrides take highest priority (set via CLI) */
@@ -43,30 +47,38 @@ esp_err_t http_proxy_init(void)
             if (nvs_get_u16(nvs, MIMI_NVS_KEY_PROXY_PORT, &port) == ESP_OK && port) {
                 s_proxy_port = port;
             }
+            // Read proxy type from NVS
+            len = sizeof(tmp);
+            memset(tmp, 0, sizeof(tmp));
+            if (nvs_get_str(nvs, "proxy_type", tmp, &len) == ESP_OK && tmp[0]) {
+                strncpy(s_proxy_type, tmp, sizeof(s_proxy_type) - 1);
+            }
         }
         nvs_close(nvs);
     }
 
     if (s_proxy_host[0] && s_proxy_port) {
-        ESP_LOGI(TAG, "Proxy configured: %s:%d", s_proxy_host, s_proxy_port);
+        ESP_LOGI(TAG, "Proxy configured: %s:%d (%s)", s_proxy_host, s_proxy_port, s_proxy_type);
     } else {
         ESP_LOGI(TAG, "No proxy configured (direct connection)");
     }
     return ESP_OK;
 }
 
-esp_err_t http_proxy_set(const char *host, uint16_t port)
+esp_err_t http_proxy_set(const char *host, uint16_t port, const char *type)
 {
     nvs_handle_t nvs;
     ESP_ERROR_CHECK(nvs_open(MIMI_NVS_PROXY, NVS_READWRITE, &nvs));
     ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_PROXY_HOST, host));
     ESP_ERROR_CHECK(nvs_set_u16(nvs, MIMI_NVS_KEY_PROXY_PORT, port));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, "proxy_type", type));
     ESP_ERROR_CHECK(nvs_commit(nvs));
     nvs_close(nvs);
 
     strncpy(s_proxy_host, host, sizeof(s_proxy_host) - 1);
     s_proxy_port = port;
-    ESP_LOGI(TAG, "Proxy set to %s:%d", s_proxy_host, s_proxy_port);
+    strncpy(s_proxy_type, type, sizeof(s_proxy_type) - 1);
+    ESP_LOGI(TAG, "Proxy set to %s:%d (%s)", s_proxy_host, s_proxy_port, s_proxy_type);
     return ESP_OK;
 }
 
@@ -76,11 +88,13 @@ esp_err_t http_proxy_clear(void)
     ESP_ERROR_CHECK(nvs_open(MIMI_NVS_PROXY, NVS_READWRITE, &nvs));
     nvs_erase_key(nvs, MIMI_NVS_KEY_PROXY_HOST);
     nvs_erase_key(nvs, MIMI_NVS_KEY_PROXY_PORT);
+    nvs_erase_key(nvs, "proxy_type");
     nvs_commit(nvs);
     nvs_close(nvs);
 
     s_proxy_host[0] = '\0';
     s_proxy_port = 0;
+    strcpy(s_proxy_type, "http"); // Reset to default
     ESP_LOGI(TAG, "Proxy cleared");
     return ESP_OK;
 }
@@ -115,7 +129,7 @@ static int sock_read_line(int fd, char *buf, int max, int timeout_ms)
     return pos;
 }
 
-/* Open TCP + CONNECT tunnel, returns socket fd or -1 */
+/* Open TCP + CONNECT tunnel for HTTP proxy, returns socket fd or -1 */
 static int open_connect_tunnel(const char *host, int port, int timeout_ms)
 {
     struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM };
@@ -165,6 +179,87 @@ static int open_connect_tunnel(const char *host, int port, int timeout_ms)
     return sock;
 }
 
+/* Open TCP + SOCKS5 tunnel, returns socket fd or -1 */
+static int open_socks5_tunnel(const char *host, int port, int timeout_ms)
+{
+    struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM };
+    struct addrinfo *res = NULL;
+    char port_str[8];
+    snprintf(port_str, sizeof(port_str), "%d", s_proxy_port);
+
+    if (getaddrinfo(s_proxy_host, port_str, &hints, &res) != 0 || !res) {
+        ESP_LOGE(TAG, "DNS resolve failed for proxy %s", s_proxy_host);
+        return -1;
+    }
+
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) { freeaddrinfo(res); return -1; }
+
+    struct timeval tv = { .tv_sec = timeout_ms / 1000, .tv_usec = (timeout_ms % 1000) * 1000 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    if (connect(sock, res->ai_addr, res->ai_addrlen) != 0) {
+        ESP_LOGE(TAG, "TCP connect to proxy %s:%d failed", s_proxy_host, s_proxy_port);
+        freeaddrinfo(res); close(sock); return -1;
+    }
+    freeaddrinfo(res);
+    ESP_LOGI(TAG, "Connected to SOCKS5 proxy %s:%d", s_proxy_host, s_proxy_port);
+
+    /* SOCKS5 handshake: version 5, no authentication */
+    unsigned char handshake[3] = { 0x05, 0x01, 0x00 };
+    if (send(sock, handshake, sizeof(handshake), 0) != sizeof(handshake)) {
+        ESP_LOGE(TAG, "Failed to send SOCKS5 handshake"); close(sock); return -1;
+    }
+
+    /* Receive handshake response */
+    unsigned char handshake_resp[2];
+    if (recv(sock, handshake_resp, sizeof(handshake_resp), 0) != sizeof(handshake_resp)) {
+        ESP_LOGE(TAG, "No response from SOCKS5 proxy"); close(sock); return -1;
+    }
+
+    if (handshake_resp[0] != 0x05 || handshake_resp[1] != 0x00) {
+        ESP_LOGE(TAG, "SOCKS5 handshake failed: version=%d, auth=%d", handshake_resp[0], handshake_resp[1]);
+        close(sock); return -1;
+    }
+
+    /* SOCKS5 connect request: version 5, connect command, reserved, domain name address type */
+    size_t host_len = strlen(host);
+    size_t req_len = 4 + 1 + host_len + 2;
+    unsigned char *req = malloc(req_len);
+    if (!req) { close(sock); return -1; }
+
+    req[0] = 0x05; /* version */
+    req[1] = 0x01; /* connect command */
+    req[2] = 0x00; /* reserved */
+    req[3] = 0x03; /* domain name address type */
+    req[4] = (unsigned char)host_len; /* domain name length */
+    memcpy(req + 5, host, host_len); /* domain name */
+    req[5 + host_len] = (unsigned char)(port >> 8); /* port high byte */
+    req[6 + host_len] = (unsigned char)(port & 0xFF); /* port low byte */
+
+    if (send(sock, req, req_len, 0) != (ssize_t)req_len) {
+        ESP_LOGE(TAG, "Failed to send SOCKS5 connect request");
+        free(req); close(sock); return -1;
+    }
+    free(req);
+
+    /* Receive connect response */
+    unsigned char resp[256];
+    int resp_len = recv(sock, resp, sizeof(resp), 0);
+    if (resp_len < 10) {
+        ESP_LOGE(TAG, "No response from SOCKS5 proxy"); close(sock); return -1;
+    }
+
+    if (resp[0] != 0x05 || resp[1] != 0x00) {
+        ESP_LOGE(TAG, "SOCKS5 connect failed: version=%d, status=%d", resp[0], resp[1]);
+        close(sock); return -1;
+    }
+
+    ESP_LOGI(TAG, "SOCKS5 tunnel established to %s:%d", host, port);
+    return sock;
+}
+
 proxy_conn_t *proxy_conn_open(const char *host, int port, int timeout_ms)
 {
     if (!http_proxy_is_enabled()) {
@@ -172,7 +267,12 @@ proxy_conn_t *proxy_conn_open(const char *host, int port, int timeout_ms)
         return NULL;
     }
 
-    int sock = open_connect_tunnel(host, port, timeout_ms);
+    int sock;
+    if (strcmp(s_proxy_type, "socks5") == 0) {
+        sock = open_socks5_tunnel(host, port, timeout_ms);
+    } else {
+        sock = open_connect_tunnel(host, port, timeout_ms);
+    }
     if (sock < 0) return NULL;
 
     proxy_conn_t *conn = calloc(1, sizeof(*conn));

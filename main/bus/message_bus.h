@@ -6,13 +6,14 @@
 
 /* Channel identifiers */
 #define MIMI_CHAN_TELEGRAM   "telegram"
+#define MIMI_CHAN_FEISHU     "feishu"
 #define MIMI_CHAN_WEBSOCKET  "websocket"
 #define MIMI_CHAN_CLI        "cli"
 
 /* Message types on the bus */
 typedef struct {
     char channel[16];       /* "telegram", "websocket", "cli" */
-    char chat_id[32];       /* Telegram chat_id or WS client id */
+    char chat_id[64];       /* Telegram chat_id, Feishu chat_id, or WS client id */
     char *content;          /* Heap-allocated message text (caller must free) */
 } mimi_msg_t;
 

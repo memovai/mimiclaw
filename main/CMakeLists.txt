@@ -3,8 +3,13 @@ idf_component_register(
         "mimi.c"
         "bus/message_bus.c"
         "wifi/wifi_manager.c"
-        "telegram/telegram_bot.c"
+        "channels/telegram/telegram_bot.c"
+        "channels/feishu/feishu_bot.c"
         "llm/llm_proxy.c"
+        "llm/llm_provider.c"
+        "llm/provider/anthropic.c"
+        "llm/provider/openai.c"
+        "llm/provider/volcengine.c"
         "agent/agent_loop.c"
         "agent/context_builder.c"
         "memory/memory_store.c"
@@ -19,7 +24,10 @@ idf_component_register(
         "tools/tool_files.c"
     INCLUDE_DIRS
         "."
+        "llm"
+        "llm/provider"
     REQUIRES
         nvs_flash esp_wifi esp_netif esp_http_client esp_http_server
         esp_https_ota esp_event json spiffs console vfs app_update esp-tls
+        esp_timer
 )

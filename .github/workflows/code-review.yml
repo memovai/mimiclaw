@@ -1,0 +1,101 @@
+name: AI Code Review (Push Mode)
+
+# 触发时机：当你向以下分支执行 git push 时触发
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'feature/*'
+      - 'dev/*'
+
+jobs:
+  review:
+    name: Volcengine LLM Review
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 拉取代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # 必须获取至少2层提交，否则无法进行 diff 对比
+
+      # 2. 获取代码差异
+      - name: Get code diff
+        id: get_diff
+        run: |
+          # 获取当前提交(HEAD)与上一次提交(HEAD^)的差异
+          # 如果是分支初次提交，HEAD^ 可能失败，则对比整个分支改动
+          git diff HEAD^ HEAD > push_diff.txt || git diff HEAD > push_diff.txt
+          echo "Diff extracted successfully."
+
+      # 3. 调用火山引擎接口并输出建议
+      - name: Call Volcengine LLM for Review
+        env:
+          VOLC_API_KEY: ${{ secrets.VOLCENGINE_API_KEY }}
+          # 确保在仓库 Settings -> Secrets 中添加了该 Key
+          ENDPOINT_ID: "ark-code-latest" 
+        run: |
+          python3 - <<EOF
+          import os
+          import requests
+          import json
+
+          # 读取 Diff 文件
+          diff_path = "push_diff.txt"
+          if not os.path.exists(diff_path):
+              print("❌ 未找到差异文件")
+              exit(0)
+              
+          diff_content = open(diff_path, "r").read()
+          if not diff_content.strip():
+              print("✅ 本次提交无代码变动")
+              exit(0)
+
+          # 火山引擎 API 配置
+          # 注意：API 地址通常为标准 v3 路径，根据您的模型部署路径微调
+          url = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+          headers = {
+              "Content-Type": "application/json",
+              "Authorization": f"Bearer {os.getenv('VOLC_API_KEY')}"
+          }
+          
+          # 构建提示词
+          payload = {
+              "model": os.getenv("ENDPOINT_ID"),
+              "messages": [
+                  {
+                      "role": "system", 
+                      "content": "你是一位拥有10年经验的资深架构师。请审阅用户提供的 Git Diff 代码差异，重点指出：1. 潜在 Bug；2. 性能瓶颈；3. 代码风格建议。请用简洁的 Markdown 格式输出。"
+                  },
+                  {
+                      "role": "user", 
+                      "content": f"以下是本次提交的代码差异：\n\n{diff_content}"
+                  }
+              ],
+              "temperature": 0.3 # 调低随机性，让审查更严谨
+          }
+
+          print("⏳ 正在联系火山引擎 AI 进行审查...")
+          
+          try:
+              response = requests.post(url, json=payload, headers=headers)
+              response.raise_for_status()
+              data = response.json()
+              
+              if 'choices' in data:
+                  review_res = data['choices'][0]['message']['content']
+                  print("\n" + "="*60)
+                  print("🤖 火山引擎 AI 代码审查报告")
+                  print("="*60 + "\n")
+                  print(review_res)
+                  print("\n" + "="*60)
+              else:
+                  print("❌ API 返回异常格式:", data)
+                  
+          except Exception as e:
+              print(f"❌ 调用失败: {e}")
+              if 'response' in locals():
+                  print("详情:", response.text)
+          EOF

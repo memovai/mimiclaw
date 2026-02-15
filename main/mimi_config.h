@@ -34,6 +34,12 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_FEISHU_APP_ID
+#define MIMI_SECRET_FEISHU_APP_ID   ""
+#endif
+#ifndef MIMI_SECRET_FEISHU_APP_SECRET
+#define MIMI_SECRET_FEISHU_APP_SECRET ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -46,6 +52,13 @@
 #define MIMI_TG_POLL_STACK           (12 * 1024)
 #define MIMI_TG_POLL_PRIO            5
 #define MIMI_TG_POLL_CORE            0
+
+/* Feishu Bot */
+#define MIMI_FEISHU_POLL_TIMEOUT_S   30
+#define MIMI_FEISHU_MAX_MSG_LEN      4096
+#define MIMI_FEISHU_POLL_STACK       (12 * 1024)
+#define MIMI_FEISHU_POLL_PRIO        5
+#define MIMI_FEISHU_POLL_CORE        0
 
 /* Agent Loop */
 #define MIMI_AGENT_STACK             (12 * 1024)
@@ -64,6 +77,11 @@
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+#define MIMI_VOLCENGINE_API_URL      "https://ark.cn-beijing.volces.com"
+#define MIMI_VOLCENGINE_API_PATH     "/api/v3/responses"
+#define MIMI_VOLCENGINE_CODING_BASE_URL   "https://ark.cn-beijing.volces.com"
+#define MIMI_VOLCENGINE_ANTHROPIC_CODING_PATH  "/api/coding/messages"
+#define MIMI_VOLCENGINE_OPENAI_CODING_PATH    "/api/coding/v3/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 
@@ -96,6 +114,7 @@
 /* NVS Namespaces */
 #define MIMI_NVS_WIFI                "wifi_config"
 #define MIMI_NVS_TG                  "tg_config"
+#define MIMI_NVS_FEISHU              "feishu_config"
 #define MIMI_NVS_LLM                 "llm_config"
 #define MIMI_NVS_PROXY               "proxy_config"
 #define MIMI_NVS_SEARCH              "search_config"
@@ -104,6 +123,8 @@
 #define MIMI_NVS_KEY_SSID            "ssid"
 #define MIMI_NVS_KEY_PASS            "password"
 #define MIMI_NVS_KEY_TG_TOKEN        "bot_token"
+#define MIMI_NVS_KEY_FEISHU_APP_ID   "app_id"
+#define MIMI_NVS_KEY_FEISHU_APP_SECRET "app_secret"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
 #define MIMI_NVS_KEY_MODEL           "model"
 #define MIMI_NVS_KEY_PROVIDER        "provider"
