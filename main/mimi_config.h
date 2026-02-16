@@ -34,6 +34,12 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_QWEN_API_KEY
+#define MIMI_SECRET_QWEN_API_KEY    ""
+#endif
+#ifndef MIMI_SECRET_QWEN_MODEL
+#define MIMI_SECRET_QWEN_MODEL      ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -66,6 +72,12 @@
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
+
+/* LLM - Qwen (Alibaba) */
+#define MIMI_QWEN_DEFAULT_MODEL      "qwen-plus"
+#define MIMI_QWEN_MAX_TOKENS         4096
+#define MIMI_QWEN_API_URL            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+#define MIMI_QWEN_STREAM_BUF_SIZE    (32 * 1024)
 
 /* Message Bus */
 #define MIMI_BUS_QUEUE_LEN           8

@@ -18,7 +18,7 @@ esp_err_t llm_proxy_init(void);
 esp_err_t llm_set_api_key(const char *api_key);
 
 /**
- * Save the LLM provider to NVS. (e.g. "anthropic", "openai")
+ * Save the LLM provider to NVS. (e.g. "anthropic", "openai", "qwen")
  */
 esp_err_t llm_set_provider(const char *provider);
 
@@ -51,8 +51,9 @@ typedef struct {
 typedef struct {
     char *text;                                  /* accumulated text blocks */
     size_t text_len;
-    llm_tool_call_t calls[MIMI_MAX_TOOL_CALLS];
+    llm_tool_call_t *calls;                      /* dynamic array of tool calls */
     int call_count;
+    int call_capacity;                           /* allocated capacity */
     bool tool_use;                               /* stop_reason == "tool_use" */
 } llm_response_t;
 
