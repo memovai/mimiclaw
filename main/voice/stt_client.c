@@ -1,5 +1,6 @@
 #include "stt_client.h"
 #include "mimi_config.h"
+#include "mp3_encoder.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -31,35 +32,6 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-/* ─── Build WAV header for 16-bit mono PCM ─── */
-
-static void build_wav_header(uint8_t *hdr, uint32_t pcm_bytes, uint32_t sample_rate)
-{
-    uint32_t file_size = pcm_bytes + 36;
-    uint32_t byte_rate = sample_rate * 1 * 2;  /* mono, 16-bit */
-    uint16_t block_align = 2;
-
-    memcpy(hdr + 0, "RIFF", 4);
-    memcpy(hdr + 4, &file_size, 4);
-    memcpy(hdr + 8, "WAVE", 4);
-    memcpy(hdr + 12, "fmt ", 4);
-    uint32_t fmt_size = 16;
-    memcpy(hdr + 16, &fmt_size, 4);
-    uint16_t audio_fmt = 1;  /* PCM */
-    memcpy(hdr + 20, &audio_fmt, 2);
-    uint16_t channels = 1;
-    memcpy(hdr + 22, &channels, 2);
-    memcpy(hdr + 24, &sample_rate, 4);
-    memcpy(hdr + 28, &byte_rate, 4);
-    memcpy(hdr + 32, &block_align, 2);
-    uint16_t bits = 16;
-    memcpy(hdr + 34, &bits, 2);
-    memcpy(hdr + 36, "data", 4);
-    memcpy(hdr + 40, &pcm_bytes, 4);
-}
-
-/* ─── Public API ─── */
-
 esp_err_t stt_transcribe(const int16_t *pcm_data, size_t pcm_len,
                          char *text_out, size_t text_size)
 {
@@ -69,35 +41,31 @@ esp_err_t stt_transcribe(const int16_t *pcm_data, size_t pcm_len,
 
     text_out[0] = '\0';
 
-    /* Build URL from config */
+    ESP_LOGI(TAG, "Encoding %d bytes PCM to MP3...", (int)pcm_len);
+    
+    uint8_t *mp3_data = NULL;
+    size_t mp3_len = 0;
+    esp_err_t enc_err = mp3_encode_pcm(pcm_data, pcm_len, MIMI_AUDIO_SAMPLE_RATE, &mp3_data, &mp3_len);
+    if (enc_err != ESP_OK) {
+        ESP_LOGE(TAG, "MP3 encoding failed: %s", esp_err_to_name(enc_err));
+        return enc_err;
+    }
+
     char url[128];
     snprintf(url, sizeof(url), "http://%s:%s/v1/audio/transcriptions",
              MIMI_SECRET_STT_HOST, MIMI_SECRET_STT_PORT);
 
-    ESP_LOGI(TAG, "STT request: %d bytes PCM → %s", (int)pcm_len, url);
+    ESP_LOGI(TAG, "STT request: %d bytes MP3 → %s", (int)mp3_len, url);
 
-    /* Multipart boundary */
     const char *boundary = "----MimiSTTBoundary9876";
-
-    /* Build multipart body in PSRAM:
-     *   --boundary\r\n
-     *   Content-Disposition: form-data; name="file"; filename="audio.wav"\r\n
-     *   Content-Type: audio/wav\r\n\r\n
-     *   <44-byte WAV header><PCM data>\r\n
-     *   --boundary\r\n
-     *   Content-Disposition: form-data; name="model"\r\n\r\n
-     *   Systran/faster-whisper-tiny\r\n
-     *   --boundary--\r\n
-     */
 
     const char *model = MIMI_SECRET_STT_MODEL;
 
-    /* Pre-calculate sizes */
     char part1_hdr[256];
     int part1_hdr_len = snprintf(part1_hdr, sizeof(part1_hdr),
         "--%s\r\n"
-        "Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n"
-        "Content-Type: audio/wav\r\n\r\n",
+        "Content-Disposition: form-data; name=\"file\"; filename=\"audio.mp3\"\r\n"
+        "Content-Type: audio/mpeg\r\n\r\n",
         boundary);
 
     char part2[256];
@@ -108,25 +76,23 @@ esp_err_t stt_transcribe(const int16_t *pcm_data, size_t pcm_len,
         "--%s--\r\n",
         boundary, model, boundary);
 
-    size_t wav_size = 44 + pcm_len;
-    size_t body_size = part1_hdr_len + wav_size + part2_len;
+    size_t body_size = part1_hdr_len + mp3_len + part2_len;
 
     uint8_t *body = heap_caps_malloc(body_size, MALLOC_CAP_SPIRAM);
     if (!body) {
         ESP_LOGE(TAG, "Failed to allocate %d bytes for multipart body", (int)body_size);
+        free(mp3_data);
         return ESP_ERR_NO_MEM;
     }
 
-    /* Assemble body */
     size_t pos = 0;
     memcpy(body + pos, part1_hdr, part1_hdr_len);
     pos += part1_hdr_len;
 
-    /* WAV header + PCM data */
-    build_wav_header(body + pos, pcm_len, MIMI_AUDIO_SAMPLE_RATE);
-    pos += 44;
-    memcpy(body + pos, pcm_data, pcm_len);
-    pos += pcm_len;
+    memcpy(body + pos, mp3_data, mp3_len);
+    pos += mp3_len;
+    
+    free(mp3_data);
 
     memcpy(body + pos, part2, part2_len);
     pos += part2_len;
@@ -153,7 +119,7 @@ esp_err_t stt_transcribe(const int16_t *pcm_data, size_t pcm_len,
         .method = HTTP_METHOD_POST,
         .event_handler = http_event_handler,
         .user_data = &rb,
-        .timeout_ms = 30000,
+        .timeout_ms = MIMI_HTTP_TIMEOUT_STT,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);

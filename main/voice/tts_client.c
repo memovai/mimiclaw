@@ -1,10 +1,12 @@
 #include "tts_client.h"
 #include "mimi_config.h"
+#include "mp3_decoder.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "tts";
 
@@ -55,7 +57,6 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
 
     ESP_LOGI(TAG, "TTS request: \"%s\" → %s", text, url);
 
-    /* Build JSON body with PCM format request (raw audio, no container) */
     char json_body[1024];
     int json_len = snprintf(json_body, sizeof(json_body),
         "{\"model\":\"%s\",\"input\":\"%s\",\"speed\":1.0,\"response_format\":\"pcm\"}",
@@ -66,12 +67,12 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
         return ESP_ERR_INVALID_SIZE;
     }
 
-    /* Response accumulator — writes directly into caller's buffer */
+    /* Write directly to output buffer - no intermediate buffer needed for PCM */
     tts_buf_t tb = {
         .buf = wav_out,
         .len = 0,
         .cap = wav_out_cap,
-        .sample_rate = 16000,  /* default, will be updated from header */
+        .sample_rate = 16000,
     };
 
     esp_http_client_config_t config = {
@@ -79,7 +80,7 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
         .method = HTTP_METHOD_POST,
         .event_handler = http_event_handler,
         .user_data = &tb,
-        .timeout_ms = 30000,
+        .timeout_ms = MIMI_HTTP_TIMEOUT_TTS,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -124,7 +125,7 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
 
-    ESP_LOGI(TAG, "TTS response: HTTP %d, %d bytes PCM audio (%d Hz)", 
+    ESP_LOGI(TAG, "TTS response: HTTP %d, %d bytes PCM audio (%d Hz)",
              status, (int)tb.len, tb.sample_rate);
 
     if (status != 200) {
@@ -138,5 +139,7 @@ esp_err_t tts_synthesize(const char *text, uint8_t *wav_out, size_t wav_out_cap,
     }
 
     *wav_len = tb.len;
+    ESP_LOGI(TAG, "TTS complete: %d bytes PCM at %d Hz", (int)tb.len, tb.sample_rate);
+
     return ESP_OK;
 }

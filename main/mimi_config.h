@@ -69,6 +69,7 @@
 #define MIMI_AGENT_MAX_HISTORY       20
 #define MIMI_AGENT_MAX_TOOL_ITER     10
 #define MIMI_MAX_TOOL_CALLS          4
+#define MIMI_ENABLE_TOOLS            0        /* 0 = disable tools, 1 = enable */
 
 /* Timezone (POSIX TZ format) */
 #define MIMI_TIMEZONE                "PST8PDT,M3.2.0,M11.1.0"
@@ -169,6 +170,25 @@
 #define MIMI_VOICE_MAX_RECORDING_S   10
 #define MIMI_VOICE_RECORDING_BUF_SIZE (MIMI_AUDIO_SAMPLE_RATE * 2 * MIMI_VOICE_MAX_RECORDING_S)
 #define MIMI_VOICE_TTS_BUF_SIZE      (512 * 1024)
+
+/* MP3 Codec Settings */
+#define MIMI_MP3_BITRATE             32  /* kbps for voice encoding */
+
+/* HTTP Timeout Settings (milliseconds) */
+#define MIMI_HTTP_TIMEOUT_STT        120000  /* STT transcription timeout */
+#define MIMI_HTTP_TIMEOUT_TTS        120000  /* TTS synthesis timeout */
+#define MIMI_HTTP_TIMEOUT_LLM        120000 /* LLM API timeout */
+#define MIMI_HTTP_TIMEOUT_WEB_SEARCH 15000  /* Web search timeout */
+#define MIMI_HTTP_TIMEOUT_TIME_API   10000  /* Time API timeout */
+#define MIMI_HTTP_TIMEOUT_OTA        120000 /* OTA update timeout */
+
+/* Performance Timing Macros */
+#include "esp_timer.h"
+#define TIMING_START() uint64_t _perf_start = esp_timer_get_time()
+#define TIMING_END_LOG(tag, desc) do { \
+    uint64_t _perf_end = esp_timer_get_time(); \
+    ESP_LOGI(tag, "%s took %lld ms", desc, (_perf_end - _perf_start) / 1000); \
+} while(0)
 
 /* NVS Keys */
 #define MIMI_NVS_KEY_SSID            "ssid"

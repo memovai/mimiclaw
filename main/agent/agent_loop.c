@@ -92,7 +92,12 @@ static void agent_loop_task(void *arg)
         return;
     }
 
+#if MIMI_ENABLE_TOOLS
     const char *tools_json = tool_registry_get_tools_json();
+#else
+    const char *tools_json = NULL;
+    ESP_LOGI(TAG, "Tools disabled by build config (MIMI_ENABLE_TOOLS=0)");
+#endif
 
     while (1) {
         mimi_msg_t msg;

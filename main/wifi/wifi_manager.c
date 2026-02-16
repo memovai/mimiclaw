@@ -87,6 +87,10 @@ esp_err_t wifi_manager_init(void)
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
+    /* Disable power save to prevent connection drops during long HTTP requests */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_LOGI(TAG, "WiFi power save disabled for stable connections");
+
     ESP_LOGI(TAG, "WiFi manager initialized");
     return ESP_OK;
 }

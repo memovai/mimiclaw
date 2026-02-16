@@ -197,7 +197,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
         .url = url,
         .event_handler = http_event_handler,
         .user_data = rb,
-        .timeout_ms = 120 * 1000,
+        .timeout_ms = MIMI_HTTP_TIMEOUT_LLM,
         .buffer_size = 4096,
         .buffer_size_tx = 4096,
         .crt_bundle_attach = is_https ? esp_crt_bundle_attach : NULL,
