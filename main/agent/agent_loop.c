@@ -53,9 +53,10 @@ static cJSON *build_assistant_content(const llm_response_t *resp)
 }
 
 /* Build the user message with tool_result blocks */
-static cJSON *build_tool_results(const llm_response_t *resp, char *tool_output, size_t tool_output_size)
+static cJSON *build_tool_results(const llm_response_t *resp, char *tool_output, size_t tool_output_size, int *photo_ready)
 {
     cJSON *content = cJSON_CreateArray();
+    if (photo_ready) *photo_ready = 0;
 
     for (int i = 0; i < resp->call_count; i++) {
         const llm_tool_call_t *call = &resp->calls[i];
@@ -63,6 +64,9 @@ static cJSON *build_tool_results(const llm_response_t *resp, char *tool_output, 
         /* Execute tool */
         tool_output[0] = '\0';
         tool_registry_execute(call->name, call->input, tool_output, tool_output_size);
+        if (strstr(tool_output, "__MIMI_PHOTO_READY__")) {
+            if (photo_ready) *photo_ready = 1;
+        }
 
         ESP_LOGI(TAG, "Tool %s result: %d bytes", call->name, (int)strlen(tool_output));
 
@@ -165,8 +169,9 @@ static void agent_loop_task(void *arg)
             cJSON_AddItemToArray(messages, asst_msg);
 
             /* Execute tools and append results */
-            cJSON *tool_results = build_tool_results(&resp, tool_output, TOOL_OUTPUT_SIZE);
-            if (strstr(tool_output, "__MIMI_PHOTO_READY__")) {
+            int photo_ready = 0;
+            cJSON *tool_results = build_tool_results(&resp, tool_output, TOOL_OUTPUT_SIZE, &photo_ready);
+            if (photo_ready) {
                 ESP_LOGI(TAG, "Detected photo ready, triggering outbound photo command...");
                 
                 // release iteration

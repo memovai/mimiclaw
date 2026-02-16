@@ -1,6 +1,8 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdint.h>
+#include <stddef.h>
 
 /**
  * Initialize the Telegram bot.

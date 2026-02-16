@@ -83,7 +83,11 @@ static void outbound_dispatch_task(void *arg)
             camera_fb_t *fb = tool_camera_get_last_fb();
             if (fb) {
                 ESP_LOGI(TAG, "Intercepted photo command, sending to %s", msg.chat_id);
-                telegram_send_photo(msg.chat_id, fb->buf, fb->len);
+                esp_err_t photo_err = telegram_send_photo(msg.chat_id, fb->buf, fb->len);
+                if (photo_err != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to send photo: %s", esp_err_to_name(photo_err));
+                    telegram_send_message(msg.chat_id, "Sorry, failed to send the photo.");
+                }
                 tool_camera_clear_last_fb();
             } else {
                 ESP_LOGW(TAG, "Photo command received but no image buffer found");

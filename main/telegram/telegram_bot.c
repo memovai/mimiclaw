@@ -2,7 +2,6 @@
 #include "mimi_config.h"
 #include "bus/message_bus.h"
 #include "proxy/http_proxy.h"
-#define TG_MULTIPART_BOUNDARY  "----MimiClawBoundary"
 
 #include <string.h>
 #include <stdlib.h>
@@ -386,8 +385,13 @@ esp_err_t telegram_send_photo(const char *chat_id, const uint8_t *photo_buf, siz
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (http_proxy_is_enabled()) {
+        ESP_LOGW(TAG, "Photo upload via proxy not supported yet");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
     // multipart header
-    char header[256];
+    char header[512];
     int header_len = snprintf(header, sizeof(header),
         "--" TG_MULTIPART_BOUNDARY "\r\n"
         "Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n"
@@ -395,6 +399,11 @@ esp_err_t telegram_send_photo(const char *chat_id, const uint8_t *photo_buf, siz
         "--" TG_MULTIPART_BOUNDARY "\r\n"
         "Content-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\n"
         "Content-Type: image/jpeg\r\n\r\n", chat_id);
+    
+    if (header_len < 0 || header_len >= (int)sizeof(header)) {
+        ESP_LOGE(TAG, "Multipart header too long");
+        return ESP_ERR_INVALID_SIZE;
+    }
 
     // multipart end
     char footer[] = "\r\n--" TG_MULTIPART_BOUNDARY "--\r\n";
