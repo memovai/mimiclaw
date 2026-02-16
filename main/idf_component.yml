@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   espressif/led_strip: ^2.4.1
   qrcode: "^0.1.0"
+  espressif/esp32-camera: "^2.0.0"

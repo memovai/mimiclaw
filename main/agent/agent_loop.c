@@ -166,6 +166,31 @@ static void agent_loop_task(void *arg)
 
             /* Execute tools and append results */
             cJSON *tool_results = build_tool_results(&resp, tool_output, TOOL_OUTPUT_SIZE);
+            if (strstr(tool_output, "__MIMI_PHOTO_READY__")) {
+                ESP_LOGI(TAG, "Detected photo ready, triggering outbound photo command...");
+                
+                // release iteration
+                llm_response_free(&resp);
+                cJSON_Delete(tool_results);
+
+                // send take msg and pic cmd to outbound
+                mimi_msg_t out = {0};
+                strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
+                strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
+                out.content = strdup("__CMD_SEND_PHOTO__"); 
+                message_bus_push_outbound(&out);
+
+                mimi_msg_t final_txt = {0};
+                strncpy(final_txt.channel, msg.channel, sizeof(final_txt.channel) - 1);
+                strncpy(final_txt.chat_id, msg.chat_id, sizeof(final_txt.chat_id) - 1);
+                final_txt.content = strdup("Here is the photo you requested! 📸");
+                message_bus_push_outbound(&final_txt);
+
+                // release the messages
+                cJSON_Delete(messages); 
+
+                goto skip_to_next_message; 
+            }
             cJSON *result_msg = cJSON_CreateObject();
             cJSON_AddStringToObject(result_msg, "role", "user");
             cJSON_AddItemToObject(result_msg, "content", tool_results);
@@ -201,12 +226,15 @@ static void agent_loop_task(void *arg)
             }
         }
 
-        /* Free inbound message content */
-        free(msg.content);
-
         /* Log memory status */
         ESP_LOGI(TAG, "Free PSRAM: %d bytes",
                  (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
+                skip_to_next_message:
+        /* Free inbound message content */
+        if (msg.content) {
+            free(msg.content);
+        }
     }
 }
 
