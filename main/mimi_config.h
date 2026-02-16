@@ -34,6 +34,9 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_SEARCH_PROVIDER
+#define MIMI_SECRET_SEARCH_PROVIDER "brave"
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -71,6 +74,7 @@
 #define MIMI_ZAI_API_URL             "https://api.z.ai/api/paas/v4/chat/completions"
 #define MIMI_ZAI_API_HOST            "api.z.ai"
 #define MIMI_ZAI_API_PATH            "/api/paas/v4/chat/completions"
+#define MIMI_ZAI_WEB_SEARCH_PATH     "/api/paas/v4/web_search"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 
@@ -116,3 +120,4 @@
 #define MIMI_NVS_KEY_PROVIDER        "provider"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"
+#define MIMI_NVS_KEY_SEARCH_PROVIDER "search_provider"

@@ -241,6 +241,32 @@ static int cmd_set_search_key(int argc, char **argv)
     return 0;
 }
 
+/* --- set_search_provider command --- */
+static struct {
+    struct arg_str *provider;
+    struct arg_end *end;
+} search_provider_args;
+
+static int cmd_set_search_provider(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&search_provider_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, search_provider_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = tool_web_search_set_provider(search_provider_args.provider->sval[0]);
+    if (err == ESP_ERR_INVALID_ARG) {
+        printf("Error: provider must be 'brave' or 'zai'\n");
+        return 1;
+    }
+    if (err != ESP_OK) {
+        printf("Error: failed to save provider\n");
+        return 1;
+    }
+    printf("Search provider set to: %s\n", search_provider_args.provider->sval[0]);
+    return 0;
+}
+
 /* --- wifi_scan command --- */
 static int cmd_wifi_scan(int argc, char **argv)
 {
@@ -294,6 +320,7 @@ static int cmd_config_show(int argc, char **argv)
     print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
     print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
+    print_config("Search Prov.", MIMI_NVS_SEARCH, MIMI_NVS_KEY_SEARCH_PROVIDER, MIMI_SECRET_SEARCH_PROVIDER, false);
     printf("=============================\n");
     return 0;
 }
@@ -459,15 +486,26 @@ esp_err_t serial_cli_init(void)
     esp_console_cmd_register(&heap_cmd);
 
     /* set_search_key */
-    search_key_args.key = arg_str1(NULL, NULL, "<key>", "Brave Search API key");
+    search_key_args.key = arg_str1(NULL, NULL, "<key>", "Search API key (Brave or Z.ai per provider)");
     search_key_args.end = arg_end(1);
     esp_console_cmd_t search_key_cmd = {
         .command = "set_search_key",
-        .help = "Set Brave Search API key for web_search tool",
+        .help = "Set search API key for web_search (Brave or Z.ai)",
         .func = &cmd_set_search_key,
         .argtable = &search_key_args,
     };
     esp_console_cmd_register(&search_key_cmd);
+
+    /* set_search_provider */
+    search_provider_args.provider = arg_str1(NULL, NULL, "<provider>", "brave or zai");
+    search_provider_args.end = arg_end(1);
+    esp_console_cmd_t search_provider_cmd = {
+        .command = "set_search_provider",
+        .help = "Set web search provider (brave|zai)",
+        .func = &cmd_set_search_provider,
+        .argtable = &search_provider_args,
+    };
+    esp_console_cmd_register(&search_provider_cmd);
 
     /* set_proxy */
     proxy_args.host = arg_str1(NULL, NULL, "<host>", "Proxy host/IP");
