@@ -25,6 +25,8 @@ idf_component_register(
         "voice/stt_client.c"
         "voice/tts_client.c"
         "voice/voice_channel.c"
+        "voice/mp3_encoder.c"
+        "voice/mp3_decoder.c"
         "wake/wake_word.c"
     INCLUDE_DIRS
         "."
@@ -32,4 +34,5 @@ idf_component_register(
         nvs_flash esp_wifi esp_netif esp_http_client esp_http_server
         esp_https_ota esp_event json spiffs console vfs app_update esp-tls
         esp_driver_i2c esp_driver_i2s esp_driver_gpio esp_lcd esp_driver_ledc
+        shine libhelix esp_timer
 )

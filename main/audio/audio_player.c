@@ -16,11 +16,85 @@ static const char *TAG = "audio_player";
 #define M_PI 3.14159265358979323846
 #endif
 
+typedef struct {
+    float b0, b1, b2;
+    float a1, a2;
+    float z1, z2;
+} biquad_filter_t;
+
+static void biquad_init_highpass(biquad_filter_t *f, float fc, float fs) {
+    float w0 = 2.0f * M_PI * fc / fs;
+    float cos_w0 = cosf(w0);
+    float sin_w0 = sinf(w0);
+    float alpha = sin_w0 / (2.0f * 0.707f);
+    
+    float a0 = 1.0f + alpha;
+    f->b0 = (1.0f + cos_w0) / (2.0f * a0);
+    f->b1 = -(1.0f + cos_w0) / a0;
+    f->b2 = (1.0f + cos_w0) / (2.0f * a0);
+    f->a1 = (-2.0f * cos_w0) / a0;
+    f->a2 = (1.0f - alpha) / a0;
+    f->z1 = f->z2 = 0.0f;
+}
+
+static void biquad_init_lowpass(biquad_filter_t *f, float fc, float fs) {
+    float w0 = 2.0f * M_PI * fc / fs;
+    float cos_w0 = cosf(w0);
+    float sin_w0 = sinf(w0);
+    float alpha = sin_w0 / (2.0f * 0.707f);
+    
+    float a0 = 1.0f + alpha;
+    f->b0 = (1.0f - cos_w0) / (2.0f * a0);
+    f->b1 = (1.0f - cos_w0) / a0;
+    f->b2 = (1.0f - cos_w0) / (2.0f * a0);
+    f->a1 = (-2.0f * cos_w0) / a0;
+    f->a2 = (1.0f - alpha) / a0;
+    f->z1 = f->z2 = 0.0f;
+}
+
+static float biquad_process(biquad_filter_t *f, float in) {
+    float out = f->b0 * in + f->z1;
+    f->z1 = f->b1 * in - f->a1 * out + f->z2;
+    f->z2 = f->b2 * in - f->a2 * out;
+    return out;
+}
+
+static void apply_audio_cleanup(int16_t *samples, size_t num_samples, uint32_t sample_rate) {
+    if (num_samples < 100) return;
+    
+    biquad_filter_t hp_filter, lp_filter;
+    biquad_init_highpass(&hp_filter, 80.0f, (float)sample_rate);
+    biquad_init_lowpass(&lp_filter, 7000.0f, (float)sample_rate);
+    
+    for (size_t i = 0; i < num_samples; i++) {
+        float sample = (float)samples[i];
+        sample = biquad_process(&hp_filter, sample);
+        sample = biquad_process(&lp_filter, sample);
+        
+        if (sample > 32767.0f) sample = 32767.0f;
+        if (sample < -32768.0f) sample = -32768.0f;
+        
+        samples[i] = (int16_t)sample;
+    }
+    
+    size_t fade_samples = (size_t)(0.05f * sample_rate);
+    if (fade_samples > num_samples / 2) fade_samples = num_samples / 2;
+    
+    for (size_t i = 0; i < fade_samples; i++) {
+        size_t idx = num_samples - fade_samples + i;
+        float fade = 1.0f - ((float)i / (float)fade_samples);
+        samples[idx] = (int16_t)((float)samples[idx] * fade);
+    }
+}
+
+/* DMA drain time in ms: one full DMA buffer depth + margin */
+#define DMA_DRAIN_MS  ((MIMI_I2S_DMA_DESC_NUM * MIMI_I2S_DMA_FRAME_NUM * 1000) / MIMI_AUDIO_SAMPLE_RATE + 50)
+
 /* Write mono PCM via esp_codec_dev (stereo output).
  * Duplicates each mono sample to L+R channels. */
 static esp_err_t write_stereo(esp_codec_dev_handle_t dev, const int16_t *mono, size_t mono_samples)
 {
-    const size_t CHUNK = 512;  /* mono samples per chunk */
+    const size_t CHUNK = 512;
     int16_t stereo_buf[CHUNK * 2];
 
     size_t written_samples = 0;
@@ -28,10 +102,9 @@ static esp_err_t write_stereo(esp_codec_dev_handle_t dev, const int16_t *mono, s
         size_t chunk = mono_samples - written_samples;
         if (chunk > CHUNK) chunk = CHUNK;
 
-        /* Interleave mono → stereo (L=R) */
         for (size_t i = 0; i < chunk; i++) {
-            stereo_buf[i * 2]     = mono[written_samples + i];  /* L */
-            stereo_buf[i * 2 + 1] = mono[written_samples + i];  /* R */
+            stereo_buf[i * 2]     = mono[written_samples + i];
+            stereo_buf[i * 2 + 1] = mono[written_samples + i];
         }
 
         int ret = esp_codec_dev_write(dev, stereo_buf, chunk * 2 * sizeof(int16_t));
@@ -40,6 +113,35 @@ static esp_err_t write_stereo(esp_codec_dev_handle_t dev, const int16_t *mono, s
         written_samples += chunk;
     }
     return ESP_OK;
+}
+
+/* Flush DMA with silence so the last audio frames are pushed out cleanly.
+ * Writes one full DMA buffer depth of zeros in stereo. */
+static void flush_dma_silence(esp_codec_dev_handle_t dev)
+{
+    const size_t FLUSH_FRAMES = MIMI_I2S_DMA_DESC_NUM * MIMI_I2S_DMA_FRAME_NUM;
+    const size_t CHUNK = 256;
+    int16_t silence[CHUNK * 2];
+    memset(silence, 0, sizeof(silence));
+
+    size_t flushed = 0;
+    while (flushed < FLUSH_FRAMES) {
+        size_t chunk = FLUSH_FRAMES - flushed;
+        if (chunk > CHUNK) chunk = CHUNK;
+        esp_codec_dev_write(dev, silence, chunk * 2 * sizeof(int16_t));
+        flushed += chunk;
+    }
+}
+
+/* Clean shutdown: silence flush → hardware mute → wait DMA drain → disable PA → unmute */
+static void audio_shutdown(esp_codec_dev_handle_t dev)
+{
+    flush_dma_silence(dev);
+    esp_codec_dev_set_out_mute(dev, true);
+    vTaskDelay(pdMS_TO_TICKS(DMA_DRAIN_MS));
+    audio_hal_speaker_pa(false);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    esp_codec_dev_set_out_mute(dev, false);
 }
 
 esp_err_t audio_player_play_tone(uint32_t freq_hz, uint32_t duration_ms)
@@ -80,9 +182,8 @@ esp_err_t audio_player_play_tone(uint32_t freq_hz, uint32_t duration_ms)
         generated += chunk;
     }
 
-    audio_hal_speaker_pa(false);
     free(mono_buf);
-
+    audio_shutdown(dev);
     ESP_LOGI(TAG, "Tone playback complete");
     return ret;
 }
@@ -97,10 +198,23 @@ esp_err_t audio_player_play_pcm(const int16_t *pcm_data, size_t pcm_len)
     ESP_LOGI(TAG, "Playing PCM: %d samples (%.1f seconds)",
              (int)total_samples, (float)total_samples / MIMI_AUDIO_SAMPLE_RATE);
 
-    audio_hal_speaker_pa(true);
-    esp_err_t ret = write_stereo(dev, pcm_data, total_samples);
-    audio_hal_speaker_pa(false);
+    int16_t *filtered_pcm = heap_caps_malloc(pcm_len, MALLOC_CAP_SPIRAM);
+    if (!filtered_pcm) {
+        ESP_LOGE(TAG, "Failed to allocate filter buffer");
+        return ESP_ERR_NO_MEM;
+    }
+    
+    memcpy(filtered_pcm, pcm_data, pcm_len);
+    
+    ESP_LOGI(TAG, "Applying audio cleanup filters...");
+    apply_audio_cleanup(filtered_pcm, total_samples, MIMI_AUDIO_SAMPLE_RATE);
 
+    audio_hal_speaker_pa(true);
+
+    esp_err_t ret = write_stereo(dev, filtered_pcm, total_samples);
+    free(filtered_pcm);
+
+    audio_shutdown(dev);
     ESP_LOGI(TAG, "PCM playback complete");
     return ret;
 }

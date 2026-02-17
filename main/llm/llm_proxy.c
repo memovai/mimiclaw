@@ -13,7 +13,7 @@
 
 static const char *TAG = "llm";
 
-static char s_api_key[128] = {0};
+static char s_api_key[256] = {0};
 static char s_model[64] = MIMI_LLM_DEFAULT_MODEL;
 static char s_provider[16] = MIMI_LLM_PROVIDER_DEFAULT;
 static char s_api_url[512] = {0};
@@ -197,7 +197,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
         .url = url,
         .event_handler = http_event_handler,
         .user_data = rb,
-        .timeout_ms = 120 * 1000,
+        .timeout_ms = MIMI_HTTP_TIMEOUT_LLM,
         .buffer_size = 4096,
         .buffer_size_tx = 4096,
         .crt_bundle_attach = is_https ? esp_crt_bundle_attach : NULL,
@@ -210,13 +210,13 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
     esp_http_client_set_header(client, "Content-Type", "application/json");
     if (s_api_url[0] != '\0') {
         /* Custom URL: send both auth headers so any backend works */
-        char auth[192];
+        char auth[264];
         snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
         esp_http_client_set_header(client, "Authorization", auth);
         esp_http_client_set_header(client, "x-api-key", s_api_key);
         esp_http_client_set_header(client, "anthropic-version", MIMI_LLM_API_VERSION);
     } else if (provider_is_openai()) {
-        char auth[192];
+        char auth[264];
         snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
         esp_http_client_set_header(client, "Authorization", auth);
     } else {

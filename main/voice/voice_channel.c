@@ -7,6 +7,8 @@
 #include "audio/audio_player.h"
 #include "voice/stt_client.h"
 #include "voice/tts_client.h"
+#include "voice/mp3_encoder.h"
+#include "voice/mp3_decoder.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -15,6 +17,7 @@
 #include "freertos/queue.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "cJSON.h"
 
 static const char *TAG = "voice_channel";
 
@@ -172,12 +175,63 @@ static void handle_response(const char *text)
         set_state(VOICE_STATE_IDLE);
         return;
     }
+    
+    /* Prevent duplicate processing */
+    static char last_text[64] = {0};
+    if (strncmp(text, last_text, sizeof(last_text) - 1) == 0) {
+        ESP_LOGW(TAG, "Duplicate response detected, ignoring");
+        set_state(VOICE_STATE_IDLE);
+        return;
+    }
+    snprintf(last_text, sizeof(last_text), "%.63s", text);
 
-    ESP_LOGI(TAG, "Synthesizing response: \"%.50s...\"", text);
+    /* Parse JSON if present to extract output_to_user field */
+    char *tts_text = NULL;
+    cJSON *json = cJSON_Parse(text);
+    if (json) {
+        /* Check if it's a tool call structure (has "name" field) - reject it */
+        cJSON *name = cJSON_GetObjectItem(json, "name");
+        if (name && cJSON_IsString(name)) {
+            ESP_LOGE(TAG, "Response contains tool call structure, not user text. Ignoring.");
+            cJSON_Delete(json);
+            set_state(VOICE_STATE_IDLE);
+            return;
+        }
+        
+        /* Try to extract output_to_user */
+        cJSON *output = cJSON_GetObjectItem(json, "output_to_user");
+        if (output && cJSON_IsString(output)) {
+            tts_text = strdup(output->valuestring);
+            ESP_LOGI(TAG, "Extracted output_to_user from JSON");
+        }
+        cJSON_Delete(json);
+    }
+    
+    /* If not JSON or no output_to_user field, use the text as-is */
+    if (!tts_text) {
+        /* Check if it looks like JSON but we couldn't parse it */
+        if (text[0] == '{' || text[0] == '[') {
+            ESP_LOGE(TAG, "Response looks like JSON but no valid text field. Raw: %.100s", text);
+            set_state(VOICE_STATE_IDLE);
+            return;
+        }
+        tts_text = strdup(text);
+    }
+    
+    if (!tts_text || strlen(tts_text) == 0) {
+        ESP_LOGW(TAG, "No valid text to synthesize");
+        free(tts_text);
+        set_state(VOICE_STATE_IDLE);
+        return;
+    }
+
+    ESP_LOGI(TAG, "Synthesizing response: \"%.50s...\"", tts_text);
     set_state(VOICE_STATE_PROCESSING_TTS);
 
     size_t wav_len = 0;
-    esp_err_t err = tts_synthesize(text, s_tts_buf, MIMI_VOICE_TTS_BUF_SIZE, &wav_len);
+    esp_err_t err = tts_synthesize(tts_text, s_tts_buf, MIMI_VOICE_TTS_BUF_SIZE, &wav_len);
+    free(tts_text);
+    
     if (err != ESP_OK || wav_len == 0) {
         ESP_LOGE(TAG, "TTS failed: %s", esp_err_to_name(err));
         set_state(VOICE_STATE_ERROR);
@@ -252,6 +306,18 @@ esp_err_t voice_channel_init(void)
     esp_err_t err = button_input_init(button_callback);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Button init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = mp3_encoder_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "MP3 encoder init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = mp3_decoder_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "MP3 decoder init failed: %s", esp_err_to_name(err));
         return err;
     }
 
