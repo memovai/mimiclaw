@@ -27,6 +27,8 @@
 #include "imu/imu_manager.h"
 #include "rgb/rgb.h"
 #include "skills/skill_loader.h"
+#include "cron/cron_service.h"
+#include "heartbeat/heartbeat.h"
 
 static const char *TAG = "mimi";
 

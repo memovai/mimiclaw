@@ -8,6 +8,9 @@
 #include "proxy/http_proxy.h"
 #include "tools/tool_web_search.h"
 #include "skills/skill_loader.h"
+#include "cron/cron_service.h"
+#include "heartbeat/heartbeat.h"
+#include "tools/tool_registry.h"
 
 #include <string.h>
 #include <stdio.h>
