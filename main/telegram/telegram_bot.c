@@ -11,6 +11,8 @@
 #include "nvs.h"
 #include "cJSON.h"
 
+#define TG_MULTIPART_BOUNDARY  "----MimiClawBoundary"
+
 static const char *TAG = "telegram";
 
 static char s_bot_token[128] = MIMI_SECRET_TG_TOKEN;
@@ -369,6 +371,79 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
     }
 
     return ESP_OK;
+}
+
+/**
+ * Send a JPEG photo to a Telegram chat.
+ * @param chat_id  Telegram chat ID
+ * @param photo_buf Pointer to jpeg data
+ * @param photo_len Size of data
+ */
+esp_err_t telegram_send_photo(const char *chat_id, const uint8_t *photo_buf, size_t photo_len) {
+    if (s_bot_token[0] == '\0') {
+        ESP_LOGW(TAG, "Cannot send photo: no bot token");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (http_proxy_is_enabled()) {
+        ESP_LOGW(TAG, "Photo upload via proxy not supported yet");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // multipart header
+    char header[512];
+    int header_len = snprintf(header, sizeof(header),
+        "--" TG_MULTIPART_BOUNDARY "\r\n"
+        "Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n"
+        "%s\r\n"
+        "--" TG_MULTIPART_BOUNDARY "\r\n"
+        "Content-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\n"
+        "Content-Type: image/jpeg\r\n\r\n", chat_id);
+    
+    if (header_len < 0 || header_len >= (int)sizeof(header)) {
+        ESP_LOGE(TAG, "Multipart header too long");
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    // multipart end
+    char footer[] = "\r\n--" TG_MULTIPART_BOUNDARY "--\r\n";
+    int footer_len = strlen(footer);
+
+    char url[256];
+    snprintf(url, sizeof(url), "https://api.telegram.org/bot%s/sendPhoto", s_bot_token);
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 30000,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) return ESP_FAIL;
+
+    // set header
+    char content_type[128];
+    snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", TG_MULTIPART_BOUNDARY);
+    esp_http_client_set_header(client, "Content-Type", content_type);
+
+    // send stream
+    size_t total_len = header_len + photo_len + footer_len;
+    esp_err_t err = esp_http_client_open(client, total_len);
+    
+    if (err == ESP_OK) {
+        esp_http_client_write(client, header, header_len);
+        esp_http_client_write(client, (const char *)photo_buf, photo_len);
+        esp_http_client_write(client, footer, footer_len);
+        
+        int status_code = esp_http_client_fetch_headers(client);
+        ESP_LOGI(TAG, "sendPhoto HTTP Status = %d", status_code);
+    } else {
+        ESP_LOGE(TAG, "Failed to open HTTP connection for photo: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+    return err;
 }
 
 esp_err_t telegram_set_token(const char *token)

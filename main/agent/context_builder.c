@@ -46,7 +46,24 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "- list_dir: List files on SPIFFS, optionally filter by prefix.\n"
         "- cron_add: Schedule a recurring or one-shot task. The message will trigger an agent turn when the job fires.\n"
         "- cron_list: List all scheduled cron jobs.\n"
-        "- cron_remove: Remove a scheduled cron job by ID.\n\n"
+        "- cron_remove: Remove a scheduled cron job by ID.\n\n")
+
+    
+#if MIMI_ENABLE_CAMERA
+    off += snprintf(buf + off, size - off,
+        "- take_photo: Take a photo and send it to the user. This is how you see the world.\n");
+#endif
+    off += snprintf(buf + off, size - off, "\n## Hardware Status\n");
+#if MIMI_ENABLE_CAMERA
+    off += snprintf(buf + off, size - off, 
+        "Camera function is ENABLED (MIMI_ENABLE_CAMERA=1). You can use 'take_photo' if needed.\n\n");
+#else
+    off += snprintf(buf + off, size - off, 
+        "Camera function is DISABLED (MIMI_ENABLE_CAMERA=0). You currently have no vision and cannot take photos. "
+        "If the user asks for vision features, suggest they set MIMI_ENABLE_CAMERA to 1.\n\n");
+#endif
+
+    off += snprintf(buf + off, size - off,
         "Use tools when needed. Provide your final answer as text after using tools.\n\n"
         "## Memory\n"
         "You have persistent memory stored on local flash:\n"

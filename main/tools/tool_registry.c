@@ -1,8 +1,9 @@
 #include "tool_registry.h"
+#include "mimi_config.h"
 #include "tools/tool_web_search.h"
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
-#include "tools/tool_cron.h"
+#include "tools/tool_camera.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -174,6 +175,17 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+#if MIMI_ENABLE_CAMERA
+    /* Register take_photo */
+    mimi_tool_t tp = {
+    .name = "take_photo",
+    .description = "Take a photo and send to the user.",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .execute = tool_take_photo_execute,
+    };
+    register_tool(&tp);
+#endif
 
     build_tools_json();
 

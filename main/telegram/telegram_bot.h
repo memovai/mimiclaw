@@ -1,6 +1,8 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdint.h>
+#include <stddef.h>
 
 /**
  * Initialize the Telegram bot.
@@ -25,3 +27,4 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text);
  */
 esp_err_t telegram_set_token(const char *token);
 
+esp_err_t telegram_send_photo(const char *chat_id, const uint8_t *photo_buf, size_t photo_len);
