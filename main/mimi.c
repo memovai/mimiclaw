@@ -79,6 +79,7 @@ static void outbound_dispatch_task(void *arg)
 
         ESP_LOGI(TAG, "Dispatching response to %s:%s", msg.channel, msg.chat_id);
 
+#if MIMI_ENABLE_CAMERA
         if (strcmp(msg.content, "__CMD_SEND_PHOTO__") == 0) {
             camera_fb_t *fb = tool_camera_get_last_fb();
             if (fb) {
@@ -93,13 +94,17 @@ static void outbound_dispatch_task(void *arg)
                 ESP_LOGW(TAG, "Photo command received but no image buffer found");
             }
         } 
-        else if (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0) {
+        else 
+#endif
+        if (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0) {
             telegram_send_message(msg.chat_id, msg.content);
-        } else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
+        } 
+        else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
             ws_server_send(msg.chat_id, msg.content);
         } else if (strcmp(msg.channel, MIMI_CHAN_SYSTEM) == 0) {
             ESP_LOGI(TAG, "System message [%s]: %.128s", msg.chat_id, msg.content);
-        } else {
+        } 
+        else {
             ESP_LOGW(TAG, "Unknown channel: %s", msg.channel);
         }
 
@@ -107,14 +112,15 @@ static void outbound_dispatch_task(void *arg)
     }
 }
 
+#if MIMI_ENABLE_CAMERA
 static esp_err_t init_camera(void)
 {
     camera_config_t config = {
         .pin_pwdn = -1,
         .pin_reset = -1,
         .pin_xclk = 15,
-        .pin_sscb_sda = 4,
-        .pin_sscb_scl = 5,
+        .pin_sscb_sda = 40,
+        .pin_sscb_scl = 41,
 
         .pin_d7 = 16,
         .pin_d6 = 17,
@@ -146,6 +152,7 @@ static esp_err_t init_camera(void)
     }
     return ESP_OK;
 }
+#endif
 
 void app_main(void)
 {
@@ -189,7 +196,12 @@ void app_main(void)
     ESP_ERROR_CHECK(cron_service_init());
     ESP_ERROR_CHECK(heartbeat_init());
     ESP_ERROR_CHECK(agent_loop_init());
-    ESP_ERROR_CHECK(init_camera());
+
+#if MIMI_ENABLE_CAMERA
+        ESP_ERROR_CHECK(init_camera());
+#else
+        ESP_LOGI(TAG, "Camera support is disabled by config");
+#endif
 
     /* Start Serial CLI first (works without WiFi) */
     ESP_ERROR_CHECK(serial_cli_init());

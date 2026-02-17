@@ -118,3 +118,6 @@
 #define MIMI_NVS_KEY_PROVIDER        "provider"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"
+
+/* Hardware Configurations*/
+#define MIMI_ENABLE_CAMERA           1 // 1: enable; 0: disable
