@@ -86,15 +86,28 @@ esp_err_t tool_web_search_init(void)
 static size_t json_escape(const char *src, char *dst, size_t dst_size)
 {
     size_t pos = 0;
-    for (; *src && pos < dst_size - 2; src++) {
+    for (; *src && pos < dst_size - 6; src++) {  /* -6 for \uXXXX worst case */
         unsigned char c = (unsigned char)*src;
         if (c == '"' || c == '\\') {
             dst[pos++] = '\\';
             dst[pos++] = (char)c;
-        } else if (c >= 0x20 && c < 0x7f) {
+        } else if (c == '\n') {
+            dst[pos++] = '\\'; dst[pos++] = 'n';
+        } else if (c == '\r') {
+            dst[pos++] = '\\'; dst[pos++] = 'r';
+        } else if (c == '\t') {
+            dst[pos++] = '\\'; dst[pos++] = 't';
+        } else if (c == '\b') {
+            dst[pos++] = '\\'; dst[pos++] = 'b';
+        } else if (c == '\f') {
+            dst[pos++] = '\\'; dst[pos++] = 'f';
+        } else if (c >= 0x20) {
+            /* Printable ASCII and UTF-8 bytes pass through */
             dst[pos++] = (char)c;
+        } else {
+            /* Other control chars: \u00XX */
+            pos += snprintf(dst + pos, dst_size - pos, "\\u%04X", c);
         }
-        /* skip control chars */
     }
     dst[pos] = '\0';
     return pos;
