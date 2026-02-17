@@ -1,2 +1,5 @@
 # MimiClaw - Common Default Configuration
 # Target-specific settings are in sdkconfig.defaults.esp32s3
+
+# TCP timeout for slow TTS/STT server (allow up to 120s wait)
+CONFIG_LWIP_TCP_MAXRTX=80

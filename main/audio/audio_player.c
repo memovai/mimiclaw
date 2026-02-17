@@ -87,11 +87,14 @@ static void apply_audio_cleanup(int16_t *samples, size_t num_samples, uint32_t s
     }
 }
 
+/* DMA drain time in ms: one full DMA buffer depth + margin */
+#define DMA_DRAIN_MS  ((MIMI_I2S_DMA_DESC_NUM * MIMI_I2S_DMA_FRAME_NUM * 1000) / MIMI_AUDIO_SAMPLE_RATE + 50)
+
 /* Write mono PCM via esp_codec_dev (stereo output).
  * Duplicates each mono sample to L+R channels. */
 static esp_err_t write_stereo(esp_codec_dev_handle_t dev, const int16_t *mono, size_t mono_samples)
 {
-    const size_t CHUNK = 512;  /* mono samples per chunk */
+    const size_t CHUNK = 512;
     int16_t stereo_buf[CHUNK * 2];
 
     size_t written_samples = 0;
@@ -99,10 +102,9 @@ static esp_err_t write_stereo(esp_codec_dev_handle_t dev, const int16_t *mono, s
         size_t chunk = mono_samples - written_samples;
         if (chunk > CHUNK) chunk = CHUNK;
 
-        /* Interleave mono → stereo (L=R) */
         for (size_t i = 0; i < chunk; i++) {
-            stereo_buf[i * 2]     = mono[written_samples + i];  /* L */
-            stereo_buf[i * 2 + 1] = mono[written_samples + i];  /* R */
+            stereo_buf[i * 2]     = mono[written_samples + i];
+            stereo_buf[i * 2 + 1] = mono[written_samples + i];
         }
 
         int ret = esp_codec_dev_write(dev, stereo_buf, chunk * 2 * sizeof(int16_t));
@@ -111,6 +113,35 @@ static esp_err_t write_stereo(esp_codec_dev_handle_t dev, const int16_t *mono, s
         written_samples += chunk;
     }
     return ESP_OK;
+}
+
+/* Flush DMA with silence so the last audio frames are pushed out cleanly.
+ * Writes one full DMA buffer depth of zeros in stereo. */
+static void flush_dma_silence(esp_codec_dev_handle_t dev)
+{
+    const size_t FLUSH_FRAMES = MIMI_I2S_DMA_DESC_NUM * MIMI_I2S_DMA_FRAME_NUM;
+    const size_t CHUNK = 256;
+    int16_t silence[CHUNK * 2];
+    memset(silence, 0, sizeof(silence));
+
+    size_t flushed = 0;
+    while (flushed < FLUSH_FRAMES) {
+        size_t chunk = FLUSH_FRAMES - flushed;
+        if (chunk > CHUNK) chunk = CHUNK;
+        esp_codec_dev_write(dev, silence, chunk * 2 * sizeof(int16_t));
+        flushed += chunk;
+    }
+}
+
+/* Clean shutdown: silence flush → hardware mute → wait DMA drain → disable PA → unmute */
+static void audio_shutdown(esp_codec_dev_handle_t dev)
+{
+    flush_dma_silence(dev);
+    esp_codec_dev_set_out_mute(dev, true);
+    vTaskDelay(pdMS_TO_TICKS(DMA_DRAIN_MS));
+    audio_hal_speaker_pa(false);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    esp_codec_dev_set_out_mute(dev, false);
 }
 
 esp_err_t audio_player_play_tone(uint32_t freq_hz, uint32_t duration_ms)
@@ -151,9 +182,8 @@ esp_err_t audio_player_play_tone(uint32_t freq_hz, uint32_t duration_ms)
         generated += chunk;
     }
 
-    audio_hal_speaker_pa(false);
     free(mono_buf);
-
+    audio_shutdown(dev);
     ESP_LOGI(TAG, "Tone playback complete");
     return ret;
 }
@@ -180,22 +210,11 @@ esp_err_t audio_player_play_pcm(const int16_t *pcm_data, size_t pcm_len)
     apply_audio_cleanup(filtered_pcm, total_samples, MIMI_AUDIO_SAMPLE_RATE);
 
     audio_hal_speaker_pa(true);
-    
-    esp_err_t ret = write_stereo(dev, filtered_pcm, total_samples);
-    
-    audio_hal_set_volume(0);
-    
-    float duration_sec = (float)total_samples / MIMI_AUDIO_SAMPLE_RATE;
-    uint32_t drain_ms = (uint32_t)(duration_sec * 1000.0f) + 100;
-    ESP_LOGI(TAG, "Codec muted, waiting %lu ms for DMA drain", (unsigned long)drain_ms);
-    vTaskDelay(pdMS_TO_TICKS(drain_ms));
-    
-    audio_hal_speaker_pa(false);
-    
-    vTaskDelay(pdMS_TO_TICKS(20));
-    audio_hal_set_volume(60);
 
+    esp_err_t ret = write_stereo(dev, filtered_pcm, total_samples);
     free(filtered_pcm);
+
+    audio_shutdown(dev);
     ESP_LOGI(TAG, "PCM playback complete");
     return ret;
 }

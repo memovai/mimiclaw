@@ -23,7 +23,7 @@
 #define MIMI_SECRET_MODEL           ""
 #endif
 #ifndef MIMI_SECRET_MODEL_PROVIDER
-#define MIMI_SECRET_MODEL_PROVIDER  "anthropic"
+#define MIMI_SECRET_MODEL_PROVIDER  "openai"
 #endif
 #ifndef MIMI_SECRET_PROXY_HOST
 #define MIMI_SECRET_PROXY_HOST      ""
@@ -34,6 +34,9 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_STT_URL
+#define MIMI_SECRET_STT_URL         "https://api.openai.com/v1/audio/transcriptions"
+#endif
 #ifndef MIMI_SECRET_STT_HOST
 #define MIMI_SECRET_STT_HOST        "192.168.1.100"
 #endif
@@ -41,10 +44,19 @@
 #define MIMI_SECRET_STT_PORT        "8000"
 #endif
 #ifndef MIMI_SECRET_STT_MODEL
-#define MIMI_SECRET_STT_MODEL       "Systran/faster-whisper-tiny"
+#define MIMI_SECRET_STT_MODEL       "gpt-4o-mini-transcribe"
+#endif
+#ifndef MIMI_SECRET_TTS_URL
+#define MIMI_SECRET_TTS_URL         "https://api.openai.com/v1/audio/speech"
 #endif
 #ifndef MIMI_SECRET_TTS_MODEL
-#define MIMI_SECRET_TTS_MODEL       "pyttsx3"
+#define MIMI_SECRET_TTS_MODEL       "gpt-4o-mini-tts"
+#endif
+#ifndef MIMI_SECRET_TTS_VOICE
+#define MIMI_SECRET_TTS_VOICE       "nova"
+#endif
+#ifndef MIMI_SECRET_TTS_INSTRUCTIONS
+#define MIMI_SECRET_TTS_INSTRUCTIONS ""
 #endif
 #ifndef MIMI_SECRET_API_URL
 #define MIMI_SECRET_API_URL         ""
@@ -75,8 +87,8 @@
 #define MIMI_TIMEZONE                "PST8PDT,M3.2.0,M11.1.0"
 
 /* LLM */
-#define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
-#define MIMI_LLM_PROVIDER_DEFAULT    "anthropic"
+#define MIMI_LLM_DEFAULT_MODEL       "gpt-4o-mini"
+#define MIMI_LLM_PROVIDER_DEFAULT    "openai"
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
@@ -175,12 +187,17 @@
 #define MIMI_MP3_BITRATE             32  /* kbps for voice encoding */
 
 /* HTTP Timeout Settings (milliseconds) */
-#define MIMI_HTTP_TIMEOUT_STT        120000  /* STT transcription timeout */
-#define MIMI_HTTP_TIMEOUT_TTS        120000  /* TTS synthesis timeout */
-#define MIMI_HTTP_TIMEOUT_LLM        120000 /* LLM API timeout */
-#define MIMI_HTTP_TIMEOUT_WEB_SEARCH 15000  /* Web search timeout */
-#define MIMI_HTTP_TIMEOUT_TIME_API   10000  /* Time API timeout */
-#define MIMI_HTTP_TIMEOUT_OTA        120000 /* OTA update timeout */
+#define MIMI_HTTP_TIMEOUT_STT        30000   /* STT transcription timeout */
+#define MIMI_HTTP_TIMEOUT_TTS        60000   /* TTS synthesis timeout */
+#define MIMI_HTTP_TIMEOUT_LLM        120000  /* LLM API timeout */
+#define MIMI_HTTP_TIMEOUT_WEB_SEARCH 15000   /* Web search timeout */
+#define MIMI_HTTP_TIMEOUT_TIME_API   10000   /* Time API timeout */
+#define MIMI_HTTP_TIMEOUT_OTA        120000  /* OTA update timeout */
+
+/* HTTP Retry Settings */
+#define MIMI_HTTP_RETRY_COUNT        4       /* Max retries on connection failure */
+#define MIMI_HTTP_RETRY_DELAY_MS     500     /* Base delay between retries (ms) */
+#define MIMI_HTTP_RETRY_DELAY_MAX_MS 2000    /* Max delay cap for backoff */
 
 /* Performance Timing Macros */
 #include "esp_timer.h"
