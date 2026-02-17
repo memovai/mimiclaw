@@ -90,11 +90,13 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+/** Return true when the active provider is Minimax. */
 static bool provider_is_minimax(void)
 {
     return strcmp(s_provider, "minimax") == 0;
 }
 
+/** Return the full API URL for the active provider. */
 static const char *llm_api_url(void)
 {
     if (provider_is_openai()) return MIMI_OPENAI_API_URL;
@@ -102,6 +104,7 @@ static const char *llm_api_url(void)
     return MIMI_LLM_API_URL;
 }
 
+/** Return the HTTP Host header value for the active provider. */
 static const char *llm_api_host(void)
 {
     if (provider_is_openai()) return "api.openai.com";
@@ -109,6 +112,7 @@ static const char *llm_api_host(void)
     return "api.anthropic.com";
 }
 
+/** Return the HTTP request path for the active provider. */
 static const char *llm_api_path(void)
 {
     if (provider_is_openai()) return "/v1/chat/completions";
