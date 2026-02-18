@@ -353,6 +353,14 @@ static void process_updates(const char *json_str)
             seen_msg_insert(msg_key);
         }
 
+        /* Only allow the owner to interact with the bot */
+        if (MIMI_SECRET_TG_OWNER_ID[0] != '\0' &&
+            strcmp(chat_id_str, MIMI_SECRET_TG_OWNER_ID) != 0) {
+            ESP_LOGW(TAG, "Unauthorized chat %s, rejecting", chat_id_str);
+            telegram_send_message(chat_id_str, "This bot is private. Access denied.");
+            continue;
+        }
+
         ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
                  uid, msg_id_val, chat_id_str, text->valuestring);
 

@@ -49,6 +49,10 @@
 #define MIMI_TG_CARD_SHOW_MS         3000
 #define MIMI_TG_CARD_BODY_SCALE      3
 
+#ifndef MIMI_SECRET_TG_OWNER_ID
+#define MIMI_SECRET_TG_OWNER_ID      ""
+#endif
+
 /* Agent Loop */
 #define MIMI_AGENT_STACK             (24 * 1024)
 #define MIMI_AGENT_PRIO              6
