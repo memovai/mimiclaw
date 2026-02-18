@@ -35,5 +35,15 @@ CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# Flash Encryption (Development Mode)
+# Protects all flash contents (including NVS tokens) from physical extraction.
+# The encryption key is stored in eFuse and cannot be read back.
+# Development mode allows reflashing; Release mode is permanent.
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y
+
+# NVS Encryption (uses keys from nvs_keys partition, protected by flash encryption)
+CONFIG_NVS_ENCRYPTION=y
+
 # Console/UART for CLI
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

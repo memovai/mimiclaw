@@ -8,6 +8,8 @@
 #include "esp_heap_caps.h"
 #include "esp_spiffs.h"
 #include "nvs_flash.h"
+#include "esp_flash_encrypt.h"
+#include "esp_partition.h"
 
 #include "mimi_config.h"
 #include "bus/message_bus.h"
@@ -32,12 +34,43 @@ static const char *TAG = "mimi";
 
 static esp_err_t init_nvs(void)
 {
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS partition truncated, erasing...");
-        ESP_ERROR_CHECK(nvs_flash_erase());
+    esp_err_t ret;
+
+    if (esp_flash_encryption_enabled()) {
+        ESP_LOGI(TAG, "Flash encryption active, using encrypted NVS");
+
+        const esp_partition_t *key_part = esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS, NULL);
+        if (key_part == NULL) {
+            ESP_LOGE(TAG, "nvs_keys partition not found");
+            return ESP_ERR_NOT_FOUND;
+        }
+
+        nvs_sec_cfg_t cfg;
+        ret = nvs_flash_read_security_cfg(key_part, &cfg);
+        if (ret == ESP_ERR_NVS_KEYS_NOT_INITIALIZED) {
+            ESP_LOGI(TAG, "Generating NVS encryption keys...");
+            ret = nvs_flash_generate_keys(key_part, &cfg);
+            if (ret != ESP_OK) return ret;
+        } else if (ret != ESP_OK) {
+            return ret;
+        }
+
+        ret = nvs_flash_secure_init(&cfg);
+        if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            ESP_LOGW(TAG, "NVS partition truncated, erasing...");
+            ESP_ERROR_CHECK(nvs_flash_erase());
+            ret = nvs_flash_secure_init(&cfg);
+        }
+    } else {
         ret = nvs_flash_init();
+        if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            ESP_LOGW(TAG, "NVS partition truncated, erasing...");
+            ESP_ERROR_CHECK(nvs_flash_erase());
+            ret = nvs_flash_init();
+        }
     }
+
     return ret;
 }
 
