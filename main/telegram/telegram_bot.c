@@ -1,4 +1,5 @@
 #include "telegram_bot.h"
+#include "telegram/md_to_html.h"
 #include "mimi_config.h"
 #include "bus/message_bus.h"
 #include "proxy/http_proxy.h"
@@ -305,36 +306,42 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
             chunk = MIMI_TG_MAX_MSG_LEN;
         }
 
-        /* Build JSON body */
-        cJSON *body = cJSON_CreateObject();
-        cJSON_AddStringToObject(body, "chat_id", chat_id);
-
         /* Create null-terminated chunk */
         char *segment = malloc(chunk + 1);
-        if (!segment) {
-            cJSON_Delete(body);
-            return ESP_ERR_NO_MEM;
-        }
+        if (!segment) return ESP_ERR_NO_MEM;
         memcpy(segment, text + offset, chunk);
         segment[chunk] = '\0';
 
-        cJSON_AddStringToObject(body, "text", segment);
-        cJSON_AddStringToObject(body, "parse_mode", "Markdown");
+        /* Convert Markdown to Telegram HTML */
+        size_t html_cap = chunk * 3 + 256;  /* worst case: every char escaped */
+        char *html_buf = malloc(html_cap);
+        if (!html_buf) {
+            free(segment);
+            return ESP_ERR_NO_MEM;
+        }
+        md_to_telegram_html(segment, html_buf, html_cap);
+        free(segment);
+
+        /* Build JSON body with HTML parse_mode */
+        cJSON *body = cJSON_CreateObject();
+        cJSON_AddStringToObject(body, "chat_id", chat_id);
+        cJSON_AddStringToObject(body, "text", html_buf);
+        cJSON_AddStringToObject(body, "parse_mode", "HTML");
+        free(html_buf);
 
         char *json_str = cJSON_PrintUnformatted(body);
         cJSON_Delete(body);
-        free(segment);
 
         if (json_str) {
             char *resp = tg_api_call("sendMessage", json_str);
             free(json_str);
             if (resp) {
-                /* Check for Markdown parse error, retry as plain text */
+                /* Check for HTML parse error, retry as plain text */
                 cJSON *root = cJSON_Parse(resp);
                 if (root) {
                     cJSON *ok_field = cJSON_GetObjectItem(root, "ok");
                     if (!cJSON_IsTrue(ok_field)) {
-                        ESP_LOGW(TAG, "Markdown send failed, retrying plain");
+                        ESP_LOGW(TAG, "HTML send failed, retrying plain text");
                         cJSON_Delete(root);
                         free(resp);
 
