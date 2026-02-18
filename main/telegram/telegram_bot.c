@@ -281,6 +281,9 @@ static bool tg_response_is_ok(const char *resp, const char **out_desc)
     return false;
 }
 
+/** Parse a Telegram getUpdates JSON response, enforce owner-only access
+ *  via MIMI_SECRET_TG_OWNER_ID, and forward accepted messages to the
+ *  inbound message bus. */
 static void process_updates(const char *json_str)
 {
     cJSON *root = cJSON_Parse(json_str);
