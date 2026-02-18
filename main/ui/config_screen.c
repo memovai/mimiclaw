@@ -10,7 +10,6 @@
 #include "mimi_secrets.h"
 #include "nvs.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 
 #define CONFIG_LINE_MAX 64
 #define CONFIG_LINES_MAX 12
@@ -24,8 +23,6 @@ static size_t s_scroll = 0;
 static bool s_active = false;
 static size_t s_selected = 0;
 static int s_sel_offset_px = 0;
-static int s_sel_dir = 1;
-static esp_timer_handle_t s_scroll_timer = NULL;
 
 #define QR_BOX 110
 #define LEFT_PAD 6
@@ -103,48 +100,9 @@ static void render_config_screen(void)
     display_show_config_screen(qr_text, ip_text, s_line_ptrs, s_line_count, s_scroll, s_selected, s_sel_offset_px);
 }
 
-static void update_selected_scroll(void *arg)
-{
-    (void)arg;
-    if (!s_active || s_line_count == 0) {
-        return;
-    }
-
-    const char *line = s_line_ptrs[s_selected];
-    if (!line) {
-        return;
-    }
-
-    int line_px = (int)strlen(line) * CHAR_W;
-    int max_offset = line_px - (int)RIGHT_W;
-    if (max_offset <= 0) {
-        s_sel_offset_px = 0;
-        s_sel_dir = 1;
-        return;
-    }
-
-    s_sel_offset_px += s_sel_dir * 4;
-    if (s_sel_offset_px >= max_offset) {
-        s_sel_offset_px = max_offset;
-        s_sel_dir = -1;
-    } else if (s_sel_offset_px <= 0) {
-        s_sel_offset_px = 0;
-        s_sel_dir = 1;
-    }
-
-    render_config_screen();
-}
-
 void config_screen_init(void)
 {
     build_config_lines();
-    const esp_timer_create_args_t timer_args = {
-        .callback = &update_selected_scroll,
-        .name = "cfg_scroll",
-        .arg = NULL,
-    };
-    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_scroll_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(s_scroll_timer, 150000));
 }
 
 void config_screen_toggle(void)
@@ -159,7 +117,6 @@ void config_screen_toggle(void)
     s_scroll = 0;
     s_selected = 0;
     s_sel_offset_px = 0;
-    s_sel_dir = 1;
     s_active = true;
     ESP_LOGI(TAG, "Switch to config screen");
     render_config_screen();
@@ -182,6 +139,5 @@ void config_screen_scroll_down(void)
     }
     s_selected = s_scroll;
     s_sel_offset_px = 0;
-    s_sel_dir = 1;
     render_config_screen();
 }

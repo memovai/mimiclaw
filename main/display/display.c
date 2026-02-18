@@ -1,8 +1,12 @@
 #include "display/display.h"
+#include "mimi_config.h"
 
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/timers.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "driver/ledc.h"
@@ -51,6 +55,18 @@ static const char *TAG = "display";
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static uint8_t backlight_percent = 50;
 static uint16_t *framebuffer = NULL;
+static SemaphoreHandle_t s_display_lock = NULL;
+static TimerHandle_t s_card_hide_timer = NULL;
+static uint32_t s_card_generation = 0;
+
+typedef enum {
+    SCREEN_KIND_NONE = 0,
+    SCREEN_KIND_BANNER,
+    SCREEN_KIND_CONFIG,
+    SCREEN_KIND_CARD,
+} screen_kind_t;
+
+static screen_kind_t s_screen_kind = SCREEN_KIND_NONE;
 
 typedef struct {
     int x;
@@ -67,6 +83,48 @@ extern const uint8_t _binary_banner_320x172_rgb565_end[];
 static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b)
 {
     return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+
+static bool display_lock_take(TickType_t wait_ticks)
+{
+    if (!s_display_lock) {
+        return false;
+    }
+    return xSemaphoreTake(s_display_lock, wait_ticks) == pdTRUE;
+}
+
+static void display_lock_give(void)
+{
+    if (s_display_lock) {
+        xSemaphoreGive(s_display_lock);
+    }
+}
+
+static void draw_framebuffer_locked(void)
+{
+    if (!panel_handle || !framebuffer) {
+        return;
+    }
+    esp_err_t err = esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, BANNER_W, BANNER_H, framebuffer);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "panel draw failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void card_hide_timer_cb(TimerHandle_t timer)
+{
+    uint32_t generation = (uint32_t)(uintptr_t)pvTimerGetTimerID(timer);
+    bool should_hide = false;
+
+    if (!display_lock_take(pdMS_TO_TICKS(30))) {
+        return;
+    }
+    should_hide = (s_screen_kind == SCREEN_KIND_CARD && s_card_generation == generation);
+    display_lock_give();
+
+    if (should_hide) {
+        display_show_banner();
+    }
 }
 
 static void fb_ensure(void)
@@ -208,6 +266,13 @@ esp_err_t display_init(void)
 {
     esp_err_t ret = ESP_OK;
 
+    if (!s_display_lock) {
+        s_display_lock = xSemaphoreCreateMutex();
+        if (!s_display_lock) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     spi_bus_config_t buscfg = {
         .sclk_io_num = LCD_PIN_SCLK,
         .mosi_io_num = LCD_PIN_MOSI,
@@ -249,13 +314,28 @@ esp_err_t display_init(void)
     backlight_ledc_init();
     display_set_backlight_percent(backlight_percent);
 
+    if (!s_card_hide_timer) {
+        s_card_hide_timer = xTimerCreate("card_hide",
+                                         pdMS_TO_TICKS(MIMI_TG_CARD_SHOW_MS),
+                                         pdFALSE, NULL, card_hide_timer_cb);
+        if (!s_card_hide_timer) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     return ret;
 }
 
 void display_show_banner(void)
 {
+    if (!display_lock_take(pdMS_TO_TICKS(200))) {
+        ESP_LOGW(TAG, "display lock timeout (banner)");
+        return;
+    }
+
     if (!panel_handle) {
         ESP_LOGW(TAG, "display not initialized");
+        display_lock_give();
         return;
     }
 
@@ -265,10 +345,20 @@ void display_show_banner(void)
     size_t expected = (size_t)BANNER_W * (size_t)BANNER_H * 2;
     if (len < expected) {
         ESP_LOGW(TAG, "banner data too small (%u < %u)", (unsigned)len, (unsigned)expected);
+        display_lock_give();
         return;
     }
 
-    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, BANNER_W, BANNER_H, start));
+    esp_err_t err = esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, BANNER_W, BANNER_H, start);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "banner draw failed: %s", esp_err_to_name(err));
+    } else {
+        s_screen_kind = SCREEN_KIND_BANNER;
+    }
+    if (s_card_hide_timer) {
+        xTimerStop(s_card_hide_timer, 0);
+    }
+    display_lock_give();
 }
 
 static void qr_draw_cb(esp_qrcode_handle_t qrcode)
@@ -296,17 +386,25 @@ void display_show_config_screen(const char *qr_text, const char *ip_text,
                                 const char **lines, size_t line_count, size_t scroll,
                                 size_t selected, int selected_offset_px)
 {
-    if (!panel_handle) {
-        ESP_LOGW(TAG, "display not initialized");
+    if (!qr_text || !ip_text || !lines) {
         return;
     }
-    if (!qr_text || !ip_text || !lines) {
+
+    if (!display_lock_take(pdMS_TO_TICKS(200))) {
+        ESP_LOGW(TAG, "display lock timeout (config)");
+        return;
+    }
+
+    if (!panel_handle) {
+        ESP_LOGW(TAG, "display not initialized");
+        display_lock_give();
         return;
     }
 
     fb_ensure();
     if (!framebuffer) {
         ESP_LOGW(TAG, "framebuffer alloc failed");
+        display_lock_give();
         return;
     }
 
@@ -368,7 +466,106 @@ void display_show_config_screen(const char *qr_text, const char *ip_text,
         }
     }
 
-    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, BANNER_W, BANNER_H, framebuffer));
+    draw_framebuffer_locked();
+    s_screen_kind = SCREEN_KIND_CONFIG;
+    if (s_card_hide_timer) {
+        xTimerStop(s_card_hide_timer, 0);
+    }
+    display_lock_give();
+}
+
+void display_show_message_card(const char *title, const char *body)
+{
+    if (!title || !body) {
+        return;
+    }
+
+    if (!display_lock_take(pdMS_TO_TICKS(200))) {
+        ESP_LOGW(TAG, "display lock timeout (card)");
+        return;
+    }
+    if (!panel_handle) {
+        display_lock_give();
+        return;
+    }
+
+    fb_ensure();
+    if (!framebuffer) {
+        ESP_LOGW(TAG, "framebuffer alloc failed");
+        display_lock_give();
+        return;
+    }
+
+    const uint16_t color_bg = rgb565(0, 0, 0);
+    const uint16_t color_title = rgb565(100, 200, 255);
+    const uint16_t color_fg = rgb565(255, 255, 255);
+
+    const int body_scale = (MIMI_TG_CARD_BODY_SCALE < 1) ? 1 : MIMI_TG_CARD_BODY_SCALE;
+    const int title_scale = 2;
+    const int title_line_h = (FONT5X7_HEIGHT + 1) * title_scale;
+    const int body_line_h = (FONT5X7_HEIGHT + 1) * body_scale + 1;
+    const int body_y = 10 + title_line_h;
+    const int max_cols = (BANNER_W - 12) / ((FONT5X7_WIDTH + 1) * body_scale);
+    int max_lines = (BANNER_H - body_y - 6) / body_line_h;
+    if (max_lines < 1) {
+        max_lines = 1;
+    }
+
+    fb_fill_rect(0, 0, BANNER_W, BANNER_H, color_bg);
+    fb_draw_text_clipped(6, 6, title, color_title, title_line_h, title_scale, 0, BANNER_W);
+
+    char wrapped[512];
+    size_t w = 0;
+    int cols = 0;
+    int lines = 1;
+
+    for (size_t i = 0; body[i] != '\0'; i++) {
+        if (w >= sizeof(wrapped) - 2 || lines > max_lines) {
+            break;
+        }
+
+        char c = body[i];
+        if (c == '\r') {
+            continue;
+        }
+        if (c == '\n') {
+            wrapped[w++] = '\n';
+            cols = 0;
+            lines++;
+            continue;
+        }
+        if (cols >= max_cols) {
+            wrapped[w++] = '\n';
+            cols = 0;
+            lines++;
+            if (lines > max_lines || w >= sizeof(wrapped) - 2) {
+                break;
+            }
+        }
+        wrapped[w++] = c;
+        cols++;
+    }
+
+    if (w == 0) {
+        strncpy(wrapped, "(empty)", sizeof(wrapped) - 1);
+        wrapped[sizeof(wrapped) - 1] = '\0';
+    } else {
+        wrapped[w] = '\0';
+    }
+
+    fb_draw_text_clipped(6, body_y, wrapped, color_fg, body_line_h, body_scale, 0, BANNER_W);
+    draw_framebuffer_locked();
+
+    s_screen_kind = SCREEN_KIND_CARD;
+    s_card_generation++;
+    uint32_t generation = s_card_generation;
+    if (s_card_hide_timer) {
+        vTimerSetTimerID(s_card_hide_timer, (void *)(uintptr_t)generation);
+        xTimerStop(s_card_hide_timer, 0);
+        xTimerChangePeriod(s_card_hide_timer, pdMS_TO_TICKS(MIMI_TG_CARD_SHOW_MS), 0);
+        xTimerStart(s_card_hide_timer, 0);
+    }
+    display_lock_give();
 }
 
 bool display_get_banner_center_rgb(uint8_t *r, uint8_t *g, uint8_t *b)

@@ -46,14 +46,17 @@
 #define MIMI_TG_POLL_STACK           (12 * 1024)
 #define MIMI_TG_POLL_PRIO            5
 #define MIMI_TG_POLL_CORE            0
+#define MIMI_TG_CARD_SHOW_MS         3000
+#define MIMI_TG_CARD_BODY_SCALE      3
 
 /* Agent Loop */
-#define MIMI_AGENT_STACK             (12 * 1024)
+#define MIMI_AGENT_STACK             (24 * 1024)
 #define MIMI_AGENT_PRIO              6
 #define MIMI_AGENT_CORE              1
 #define MIMI_AGENT_MAX_HISTORY       20
 #define MIMI_AGENT_MAX_TOOL_ITER     10
 #define MIMI_MAX_TOOL_CALLS          4
+#define MIMI_AGENT_SEND_WORKING_STATUS 1
 
 /* Timezone (POSIX TZ format) */
 #define MIMI_TIMEZONE                "PST8PDT,M3.2.0,M11.1.0"
@@ -66,10 +69,12 @@
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
+#define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
+#define MIMI_LLM_LOG_PREVIEW_BYTES   160
 
 /* Message Bus */
-#define MIMI_BUS_QUEUE_LEN           8
-#define MIMI_OUTBOUND_STACK          (8 * 1024)
+#define MIMI_BUS_QUEUE_LEN           16
+#define MIMI_OUTBOUND_STACK          (12 * 1024)
 #define MIMI_OUTBOUND_PRIO           5
 #define MIMI_OUTBOUND_CORE           0
 
@@ -84,14 +89,12 @@
 #define MIMI_CONTEXT_BUF_SIZE        (16 * 1024)
 #define MIMI_SESSION_MAX_MSGS        20
 
-/* Heartbeat */
-#define MIMI_HEARTBEAT_FILE          "/spiffs/config/HEARTBEAT.md"
-#define MIMI_HEARTBEAT_INTERVAL_MS   (5 * 60 * 1000)   /* 5 minutes */
-
-/* Cron */
-#define MIMI_CRON_FILE               "/spiffs/config/cron.json"
+/* Cron / Heartbeat */
+#define MIMI_CRON_FILE               "/spiffs/cron.json"
 #define MIMI_CRON_MAX_JOBS           16
-#define MIMI_CRON_CHECK_INTERVAL_MS  (10 * 1000)        /* 10 seconds */
+#define MIMI_CRON_CHECK_INTERVAL_MS  (60 * 1000)
+#define MIMI_HEARTBEAT_FILE          "/spiffs/HEARTBEAT.md"
+#define MIMI_HEARTBEAT_INTERVAL_MS   (30 * 60 * 1000)
 
 /* Skills */
 #define MIMI_SKILLS_PREFIX           "/spiffs/skills/"

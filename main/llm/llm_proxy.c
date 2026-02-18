@@ -15,10 +15,59 @@ static const char *TAG = "llm";
 
 #define LLM_API_KEY_MAX_LEN 320
 #define LLM_MODEL_MAX_LEN   64
+#define LLM_DUMP_MAX_BYTES   (16 * 1024)
+#define LLM_DUMP_CHUNK_BYTES 320
 
 static char s_api_key[LLM_API_KEY_MAX_LEN] = {0};
 static char s_model[LLM_MODEL_MAX_LEN] = MIMI_LLM_DEFAULT_MODEL;
 static char s_provider[16] = MIMI_LLM_PROVIDER_DEFAULT;
+
+static void llm_log_payload(const char *label, const char *payload)
+{
+    if (!payload) {
+        ESP_LOGI(TAG, "%s: <null>", label);
+        return;
+    }
+
+    size_t total = strlen(payload);
+#if MIMI_LLM_LOG_VERBOSE_PAYLOAD
+    size_t shown = total > LLM_DUMP_MAX_BYTES ? LLM_DUMP_MAX_BYTES : total;
+    ESP_LOGI(TAG, "%s (%u bytes)%s",
+             label,
+             (unsigned)total,
+             (shown < total) ? " [truncated]" : "");
+
+    char chunk[LLM_DUMP_CHUNK_BYTES + 1];
+    for (size_t off = 0; off < shown; off += LLM_DUMP_CHUNK_BYTES) {
+        size_t n = shown - off;
+        if (n > LLM_DUMP_CHUNK_BYTES) {
+            n = LLM_DUMP_CHUNK_BYTES;
+        }
+        memcpy(chunk, payload + off, n);
+        chunk[n] = '\0';
+        ESP_LOGI(TAG, "%s[%u]: %s", label, (unsigned)off, chunk);
+    }
+#else
+    if (MIMI_LLM_LOG_PREVIEW_BYTES > 0) {
+        size_t shown = total > MIMI_LLM_LOG_PREVIEW_BYTES ? MIMI_LLM_LOG_PREVIEW_BYTES : total;
+        char preview[MIMI_LLM_LOG_PREVIEW_BYTES + 1];
+        memcpy(preview, payload, shown);
+        preview[shown] = '\0';
+        for (size_t i = 0; i < shown; i++) {
+            if (preview[i] == '\n' || preview[i] == '\r' || preview[i] == '\t') {
+                preview[i] = ' ';
+            }
+        }
+        ESP_LOGI(TAG, "%s (%u bytes): %s%s",
+                 label,
+                 (unsigned)total,
+                 preview,
+                 (shown < total) ? " ..." : "");
+    } else {
+        ESP_LOGI(TAG, "%s (%u bytes)", label, (unsigned)total);
+    }
+#endif
+}
 
 static void safe_copy(char *dst, size_t dst_size, const char *src)
 {
@@ -483,7 +532,11 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    if (provider_is_openai()) {
+        cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
+    } else {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    }
 
     if (provider_is_openai()) {
         cJSON *messages = cJSON_Parse(messages_json);
@@ -521,6 +574,7 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
 
     ESP_LOGI(TAG, "Calling LLM API (provider: %s, model: %s, body: %d bytes)",
              s_provider, s_model, (int)strlen(post_data));
+    llm_log_payload("LLM request", post_data);
 
     resp_buf_t rb;
     if (resp_buf_init(&rb, MIMI_LLM_STREAM_BUF_SIZE) != ESP_OK) {
@@ -535,11 +589,14 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+        llm_log_payload("LLM partial response", rb.data);
         resp_buf_free(&rb);
         snprintf(response_buf, buf_size, "Error: HTTP request failed (%s)",
                  esp_err_to_name(err));
         return err;
     }
+
+    llm_log_payload("LLM raw response", rb.data);
 
     if (status != 200) {
         ESP_LOGE(TAG, "API returned status %d", status);
@@ -601,7 +658,11 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    if (provider_is_openai()) {
+        cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
+    } else {
+        cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
+    }
 
     if (provider_is_openai()) {
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
@@ -636,6 +697,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
     ESP_LOGI(TAG, "Calling LLM API with tools (provider: %s, model: %s, body: %d bytes)",
              s_provider, s_model, (int)strlen(post_data));
+    llm_log_payload("LLM tools request", post_data);
 
     /* HTTP call */
     resp_buf_t rb;
@@ -650,9 +712,12 @@ esp_err_t llm_chat_tools(const char *system_prompt,
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+        llm_log_payload("LLM tools partial response", rb.data);
         resp_buf_free(&rb);
         return err;
     }
+
+    llm_log_payload("LLM tools raw response", rb.data);
 
     if (status != 200) {
         ESP_LOGE(TAG, "API error %d: %.500s", status, rb.data ? rb.data : "");
