@@ -10,6 +10,9 @@
 
 static const char *TAG = "context";
 
+/** Append the contents of a SPIFFS file into buf at the given offset.
+ *  If header is non-NULL, a markdown section header is written first.
+ *  Returns the new offset after appending. */
 static size_t append_file(char *buf, size_t size, size_t offset, const char *path, const char *header)
 {
     FILE *f = fopen(path, "r");
@@ -26,6 +29,10 @@ static size_t append_file(char *buf, size_t size, size_t offset, const char *pat
     return offset;
 }
 
+/** Build the full system prompt into buf (up to size bytes).
+ *  Combines the static instructions, personality/user files, long-term
+ *  memory, recent daily notes, and skill summaries. Temporary read
+ *  buffers are allocated from PSRAM to avoid overflowing the task stack. */
 esp_err_t context_build_system_prompt(char *buf, size_t size)
 {
     size_t off = 0;
