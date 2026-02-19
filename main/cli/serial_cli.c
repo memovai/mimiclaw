@@ -24,6 +24,14 @@
 #include "nvs.h"
 #include "argtable3/argtable3.h"
 
+
+/* Support both ESP32 (UART) and ESP32-S3 (USB Serial JTAG) */
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+    #define CONSOLE_USE_USB_JTAG 1
+#else
+    #define CONSOLE_USE_USB_JTAG 0
+#endif
+
 static const char *TAG = "cli";
 
 /* --- wifi_set command --- */
@@ -552,11 +560,17 @@ esp_err_t serial_cli_init(void)
     repl_config.prompt = "mimi> ";
     repl_config.max_cmdline_length = 256;
 
-    /* USB Serial JTAG */
+    /* Initialize console - ESP32-S3 uses USB Serial JTAG, ESP32 uses UART */
+#if CONSOLE_USE_USB_JTAG
+    /* ESP32-S3: USB Serial JTAG */
     esp_console_dev_usb_serial_jtag_config_t hw_config =
         ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-
     ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
+#else
+    /* ESP32: UART0 */
+    esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
+#endif
 
     /* Register commands */
     esp_console_register_help_command();
