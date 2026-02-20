@@ -1,5 +1,6 @@
 #include "tools/tool_cron.h"
 #include "cron/cron_service.h"
+#include "bus/message_bus.h"
 
 #include <string.h>
 #include <time.h>
@@ -44,6 +45,14 @@ esp_err_t tool_cron_add_execute(const char *input_json, char *output, size_t out
     const char *chat_id = cJSON_GetStringValue(cJSON_GetObjectItem(root, "chat_id"));
     if (channel) strncpy(job.channel, channel, sizeof(job.channel) - 1);
     if (chat_id) strncpy(job.chat_id, chat_id, sizeof(job.chat_id) - 1);
+
+    if (strcmp(job.channel, MIMI_CHAN_TELEGRAM) == 0 &&
+        (job.chat_id[0] == '\0' || strcmp(job.chat_id, "cron") == 0)) {
+        snprintf(output, output_size,
+                 "Error: cron_add with channel='telegram' requires a valid chat_id");
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
 
     if (strcmp(schedule_type, "every") == 0) {
         job.kind = CRON_KIND_EVERY;

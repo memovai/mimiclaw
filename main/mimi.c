@@ -21,13 +21,11 @@
 #include "cli/serial_cli.h"
 #include "proxy/http_proxy.h"
 #include "tools/tool_registry.h"
-#include "display/display.h"
-#include "buttons/button_driver.h"
-#include "ui/config_screen.h"
-#include "imu/imu_manager.h"
-#include "rgb/rgb.h"
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
+#include "buttons/button_driver.h"
+#include "imu/imu_manager.h"
+#include "skills/skill_loader.h"
 
 static const char *TAG = "mimi";
 
@@ -76,9 +74,17 @@ static void outbound_dispatch_task(void *arg)
         ESP_LOGI(TAG, "Dispatching response to %s:%s", msg.channel, msg.chat_id);
 
         if (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0) {
-            telegram_send_message(msg.chat_id, msg.content);
+            esp_err_t send_err = telegram_send_message(msg.chat_id, msg.content);
+            if (send_err != ESP_OK) {
+                ESP_LOGE(TAG, "Telegram send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
+            } else {
+                ESP_LOGI(TAG, "Telegram send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
+            }
         } else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
-            ws_server_send(msg.chat_id, msg.content);
+            esp_err_t ws_err = ws_server_send(msg.chat_id, msg.content);
+            if (ws_err != ESP_OK) {
+                ESP_LOGW(TAG, "WS send failed for %s: %s", msg.chat_id, esp_err_to_name(ws_err));
+            }
         } else if (strcmp(msg.channel, MIMI_CHAN_SYSTEM) == 0) {
             ESP_LOGI(TAG, "System message [%s]: %.128s", msg.chat_id, msg.content);
         } else {
@@ -104,15 +110,10 @@ void app_main(void)
     ESP_LOGI(TAG, "PSRAM free:    %d bytes",
              (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
-    /* Display + input */
-    ESP_ERROR_CHECK(display_init());
-    display_show_banner();
-    ESP_ERROR_CHECK(rgb_init());
-    rgb_set(255, 0, 0);
+    /* Input */
     button_Init();
-    config_screen_init();
     imu_manager_init();
-    imu_manager_set_shake_callback(config_screen_toggle);
+    imu_manager_set_shake_callback(NULL);
 
     /* Phase 1: Core infrastructure */
     ESP_ERROR_CHECK(init_nvs());
@@ -122,6 +123,7 @@ void app_main(void)
     /* Initialize subsystems */
     ESP_ERROR_CHECK(message_bus_init());
     ESP_ERROR_CHECK(memory_store_init());
+    ESP_ERROR_CHECK(skill_loader_init());
     ESP_ERROR_CHECK(session_mgr_init());
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(http_proxy_init());
@@ -144,18 +146,19 @@ void app_main(void)
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
 
+            /* Outbound dispatch task should start first to avoid dropping early replies. */
+            ESP_ERROR_CHECK((xTaskCreatePinnedToCore(
+                outbound_dispatch_task, "outbound",
+                MIMI_OUTBOUND_STACK, NULL,
+                MIMI_OUTBOUND_PRIO, NULL, MIMI_OUTBOUND_CORE) == pdPASS)
+                ? ESP_OK : ESP_FAIL);
+
             /* Start network-dependent services */
-            ESP_ERROR_CHECK(telegram_bot_start());
             ESP_ERROR_CHECK(agent_loop_start());
+            ESP_ERROR_CHECK(telegram_bot_start());
             cron_service_start();
             heartbeat_start();
             ESP_ERROR_CHECK(ws_server_start());
-
-            /* Outbound dispatch task */
-            xTaskCreatePinnedToCore(
-                outbound_dispatch_task, "outbound",
-                MIMI_OUTBOUND_STACK, NULL,
-                MIMI_OUTBOUND_PRIO, NULL, MIMI_OUTBOUND_CORE);
 
             ESP_LOGI(TAG, "All services started!");
         } else {

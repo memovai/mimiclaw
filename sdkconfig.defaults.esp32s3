@@ -35,5 +35,7 @@ CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# Console/UART for CLI
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# Console: UART primary (non-blocking), USB Serial/JTAG secondary
+# Prevents device hang when no USB host is connected (issue #60)
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y

@@ -20,6 +20,36 @@ static cron_job_t s_jobs[MAX_CRON_JOBS];
 static int s_job_count = 0;
 static TaskHandle_t s_cron_task = NULL;
 
+static esp_err_t cron_save_jobs(void);
+
+static bool cron_sanitize_destination(cron_job_t *job)
+{
+    bool changed = false;
+    if (!job) {
+        return false;
+    }
+
+    if (job->channel[0] == '\0') {
+        strncpy(job->channel, MIMI_CHAN_SYSTEM, sizeof(job->channel) - 1);
+        changed = true;
+    }
+
+    if (strcmp(job->channel, MIMI_CHAN_TELEGRAM) == 0) {
+        if (job->chat_id[0] == '\0' || strcmp(job->chat_id, "cron") == 0) {
+            ESP_LOGW(TAG, "Cron job %s has invalid telegram chat_id, fallback to system:cron",
+                     job->id[0] ? job->id : "<new>");
+            strncpy(job->channel, MIMI_CHAN_SYSTEM, sizeof(job->channel) - 1);
+            strncpy(job->chat_id, "cron", sizeof(job->chat_id) - 1);
+            changed = true;
+        }
+    } else if (job->chat_id[0] == '\0') {
+        strncpy(job->chat_id, "cron", sizeof(job->chat_id) - 1);
+        changed = true;
+    }
+
+    return changed;
+}
+
 /* ── Persistence ──────────────────────────────────────────────── */
 
 static void cron_generate_id(char *id_buf)
@@ -77,6 +107,7 @@ static esp_err_t cron_load_jobs(void)
     }
 
     s_job_count = 0;
+    bool repaired = false;
     cJSON *item;
     cJSON_ArrayForEach(item, jobs_arr) {
         if (s_job_count >= MAX_CRON_JOBS) break;
@@ -100,6 +131,9 @@ static esp_err_t cron_load_jobs(void)
                 sizeof(job->channel) - 1);
         strncpy(job->chat_id, chat_id ? chat_id : "cron",
                 sizeof(job->chat_id) - 1);
+        if (cron_sanitize_destination(job)) {
+            repaired = true;
+        }
 
         cJSON *enabled_j = cJSON_GetObjectItem(item, "enabled");
         job->enabled = enabled_j ? cJSON_IsTrue(enabled_j) : true;
@@ -133,6 +167,9 @@ static esp_err_t cron_load_jobs(void)
     }
 
     cJSON_Delete(root);
+    if (repaired) {
+        cron_save_jobs();
+    }
     ESP_LOGI(TAG, "Loaded %d cron jobs", s_job_count);
     return ESP_OK;
 }
@@ -354,13 +391,8 @@ esp_err_t cron_add_job(cron_job_t *job)
     /* Generate ID */
     cron_generate_id(job->id);
 
-    /* Set defaults for channel/chat_id if empty */
-    if (job->channel[0] == '\0') {
-        strncpy(job->channel, MIMI_CHAN_SYSTEM, sizeof(job->channel) - 1);
-    }
-    if (job->chat_id[0] == '\0') {
-        strncpy(job->chat_id, "cron", sizeof(job->chat_id) - 1);
-    }
+    /* Validate/sanitize channel and chat_id before storing. */
+    cron_sanitize_destination(job);
 
     /* Compute initial next_run */
     job->enabled = true;

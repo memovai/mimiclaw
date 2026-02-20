@@ -3,7 +3,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "driver/gpio.h" 
-#include "display/display.h"
 #include "ui/config_screen.h"
 
 void  ESP32_Button_init(void){
@@ -34,8 +33,6 @@ void Button_SINGLE_CLICK_Callback(void* btn){
     BOOT_KEY_State = SINGLE_CLICK;                    
     if (config_screen_is_active()) {
       config_screen_scroll_down();
-    } else {
-      display_cycle_backlight();
     }
   }
 }
@@ -72,4 +69,3 @@ void button_Init(void)
   BOOT_KEY_State = NONE_PRESS;              
   button_start(&BUTTON1);                                                   
 }
-

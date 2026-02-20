@@ -5,7 +5,9 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "nvs.h"
@@ -15,6 +17,16 @@ static const char *TAG = "telegram";
 
 static char s_bot_token[128] = MIMI_SECRET_TG_TOKEN;
 static int64_t s_update_offset = 0;
+static int64_t s_last_saved_offset = -1;
+static int64_t s_last_offset_save_us = 0;
+
+#define TG_OFFSET_NVS_KEY            "update_offset"
+#define TG_DEDUP_CACHE_SIZE          64
+#define TG_OFFSET_SAVE_INTERVAL_US   (5LL * 1000 * 1000)
+#define TG_OFFSET_SAVE_STEP          10
+
+static uint64_t s_seen_msg_keys[TG_DEDUP_CACHE_SIZE] = {0};
+static size_t s_seen_msg_idx = 0;
 
 /* HTTP response accumulator */
 typedef struct {
@@ -22,6 +34,77 @@ typedef struct {
     size_t len;
     size_t cap;
 } http_resp_t;
+
+static uint64_t fnv1a64(const char *s)
+{
+    uint64_t h = 1469598103934665603ULL;
+    if (!s) {
+        return h;
+    }
+    while (*s) {
+        h ^= (unsigned char)(*s++);
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+static uint64_t make_msg_key(const char *chat_id, int msg_id)
+{
+    uint64_t h = fnv1a64(chat_id);
+    return (h << 16) ^ (uint64_t)(msg_id & 0xFFFF) ^ ((uint64_t)msg_id << 32);
+}
+
+static bool seen_msg_contains(uint64_t key)
+{
+    for (size_t i = 0; i < TG_DEDUP_CACHE_SIZE; i++) {
+        if (s_seen_msg_keys[i] == key) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void seen_msg_insert(uint64_t key)
+{
+    s_seen_msg_keys[s_seen_msg_idx] = key;
+    s_seen_msg_idx = (s_seen_msg_idx + 1) % TG_DEDUP_CACHE_SIZE;
+}
+
+static void save_update_offset_if_needed(bool force)
+{
+    if (s_update_offset <= 0) {
+        return;
+    }
+
+    int64_t now = esp_timer_get_time();
+    bool should_save = force;
+    if (!should_save && s_last_saved_offset >= 0) {
+        if ((s_update_offset - s_last_saved_offset) >= TG_OFFSET_SAVE_STEP) {
+            should_save = true;
+        } else if ((now - s_last_offset_save_us) >= TG_OFFSET_SAVE_INTERVAL_US) {
+            should_save = true;
+        }
+    } else if (!should_save) {
+        should_save = true;
+    }
+
+    if (!should_save) {
+        return;
+    }
+
+    nvs_handle_t nvs;
+    if (nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+
+    if (nvs_set_i64(nvs, TG_OFFSET_NVS_KEY, s_update_offset) == ESP_OK) {
+        if (nvs_commit(nvs) == ESP_OK) {
+            s_last_saved_offset = s_update_offset;
+            s_last_offset_save_us = now;
+        }
+    }
+    nvs_close(nvs);
+}
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
@@ -167,6 +250,37 @@ static char *tg_api_call(const char *method, const char *post_data)
     return tg_api_call_direct(method, post_data);
 }
 
+static bool tg_response_is_ok(const char *resp, const char **out_desc)
+{
+    if (out_desc) {
+        *out_desc = NULL;
+    }
+    if (!resp) {
+        return false;
+    }
+
+    cJSON *root = cJSON_Parse(resp);
+    if (root) {
+        cJSON *ok_field = cJSON_GetObjectItem(root, "ok");
+        bool ok = cJSON_IsTrue(ok_field);
+        if (!ok && out_desc) {
+            cJSON *desc = cJSON_GetObjectItem(root, "description");
+            if (desc && cJSON_IsString(desc)) {
+                *out_desc = desc->valuestring;
+            }
+        }
+        cJSON_Delete(root);
+        return ok;
+    }
+
+    /* Proxy or gateway can occasionally return non-standard payload framing. */
+    if (strstr(resp, "\"ok\":true") != NULL) {
+        return true;
+    }
+
+    return false;
+}
+
 static void process_updates(const char *json_str)
 {
     cJSON *root = cJSON_Parse(json_str);
@@ -186,13 +300,18 @@ static void process_updates(const char *json_str)
 
     cJSON *update;
     cJSON_ArrayForEach(update, result) {
-        /* Track offset */
+        /* Track offset and skip stale/duplicate updates */
         cJSON *update_id = cJSON_GetObjectItem(update, "update_id");
+        int64_t uid = -1;
         if (cJSON_IsNumber(update_id)) {
-            int64_t uid = (int64_t)update_id->valuedouble;
-            if (uid >= s_update_offset) {
-                s_update_offset = uid + 1;
+            uid = (int64_t)update_id->valuedouble;
+        }
+        if (uid >= 0) {
+            if (uid < s_update_offset) {
+                continue;
             }
+            s_update_offset = uid + 1;
+            save_update_offset_if_needed(false);
         }
 
         /* Extract message */
@@ -208,10 +327,34 @@ static void process_updates(const char *json_str)
         cJSON *chat_id = cJSON_GetObjectItem(chat, "id");
         if (!chat_id) continue;
 
-        char chat_id_str[32];
-        snprintf(chat_id_str, sizeof(chat_id_str), "%.0f", chat_id->valuedouble);
+        int msg_id_val = -1;
+        cJSON *message_id = cJSON_GetObjectItem(message, "message_id");
+        if (cJSON_IsNumber(message_id)) {
+            msg_id_val = (int)message_id->valuedouble;
+        }
 
-        ESP_LOGI(TAG, "Message from chat %s: %.40s...", chat_id_str, text->valuestring);
+        char chat_id_str[32];
+        if (cJSON_IsString(chat_id) && chat_id->valuestring) {
+            strncpy(chat_id_str, chat_id->valuestring, sizeof(chat_id_str) - 1);
+            chat_id_str[sizeof(chat_id_str) - 1] = '\0';
+        } else if (cJSON_IsNumber(chat_id)) {
+            snprintf(chat_id_str, sizeof(chat_id_str), "%.0f", chat_id->valuedouble);
+        } else {
+            continue;
+        }
+
+        if (msg_id_val >= 0) {
+            uint64_t msg_key = make_msg_key(chat_id_str, msg_id_val);
+            if (seen_msg_contains(msg_key)) {
+                ESP_LOGW(TAG, "Drop duplicate message update_id=%" PRId64 " chat=%s message_id=%d",
+                         uid, chat_id_str, msg_id_val);
+                continue;
+            }
+            seen_msg_insert(msg_key);
+        }
+
+        ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
+                 uid, msg_id_val, chat_id_str, text->valuestring);
 
         /* Push to inbound bus */
         mimi_msg_t msg = {0};
@@ -219,7 +362,10 @@ static void process_updates(const char *json_str)
         strncpy(msg.chat_id, chat_id_str, sizeof(msg.chat_id) - 1);
         msg.content = strdup(text->valuestring);
         if (msg.content) {
-            message_bus_push_inbound(&msg);
+            if (message_bus_push_inbound(&msg) != ESP_OK) {
+                ESP_LOGW(TAG, "Inbound queue full, drop telegram message");
+                free(msg.content);
+            }
         }
     }
 
@@ -265,6 +411,13 @@ esp_err_t telegram_bot_init(void)
         if (nvs_get_str(nvs, MIMI_NVS_KEY_TG_TOKEN, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_bot_token, tmp, sizeof(s_bot_token) - 1);
         }
+
+        int64_t offset = 0;
+        if (nvs_get_i64(nvs, TG_OFFSET_NVS_KEY, &offset) == ESP_OK && offset > 0) {
+            s_update_offset = offset;
+            s_last_saved_offset = offset;
+            ESP_LOGI(TAG, "Loaded Telegram update offset: %" PRId64, s_update_offset);
+        }
         nvs_close(nvs);
     }
 
@@ -298,6 +451,7 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
     /* Split long messages at 4096-char boundary */
     size_t text_len = strlen(text);
     size_t offset = 0;
+    int all_ok = 1;
 
     while (offset < text_len) {
         size_t chunk = text_len - offset;
@@ -325,50 +479,74 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
         cJSON_Delete(body);
         free(segment);
 
-        if (json_str) {
-            char *resp = tg_api_call("sendMessage", json_str);
-            free(json_str);
-            if (resp) {
-                /* Check for Markdown parse error, retry as plain text */
-                cJSON *root = cJSON_Parse(resp);
-                if (root) {
-                    cJSON *ok_field = cJSON_GetObjectItem(root, "ok");
-                    if (!cJSON_IsTrue(ok_field)) {
-                        ESP_LOGW(TAG, "Markdown send failed, retrying plain");
-                        cJSON_Delete(root);
-                        free(resp);
+        if (!json_str) {
+            all_ok = 0;
+            offset += chunk;
+            continue;
+        }
 
-                        /* Retry without parse_mode */
-                        cJSON *body2 = cJSON_CreateObject();
-                        cJSON_AddStringToObject(body2, "chat_id", chat_id);
-                        char *seg2 = malloc(chunk + 1);
-                        if (seg2) {
-                            memcpy(seg2, text + offset, chunk);
-                            seg2[chunk] = '\0';
-                            cJSON_AddStringToObject(body2, "text", seg2);
-                            free(seg2);
-                        }
-                        char *json2 = cJSON_PrintUnformatted(body2);
-                        cJSON_Delete(body2);
-                        if (json2) {
-                            char *resp2 = tg_api_call("sendMessage", json2);
-                            free(json2);
-                            free(resp2);
-                        }
-                    } else {
-                        cJSON_Delete(root);
-                        free(resp);
-                    }
-                } else {
-                    free(resp);
-                }
+        ESP_LOGI(TAG, "Sending telegram chunk to %s (%d bytes)", chat_id, (int)chunk);
+        char *resp = tg_api_call("sendMessage", json_str);
+        free(json_str);
+
+        int sent_ok = 0;
+        bool markdown_failed = false;
+        if (resp) {
+            const char *desc = NULL;
+            sent_ok = tg_response_is_ok(resp, &desc);
+            if (!sent_ok) {
+                markdown_failed = true;
+                ESP_LOGI(TAG, "Markdown rejected by Telegram for %s: %s",
+                         chat_id, desc ? desc : "unknown");
             }
         }
 
+        if (!sent_ok) {
+            /* Retry without parse_mode */
+            cJSON *body2 = cJSON_CreateObject();
+            cJSON_AddStringToObject(body2, "chat_id", chat_id);
+            char *seg2 = malloc(chunk + 1);
+            if (seg2) {
+                memcpy(seg2, text + offset, chunk);
+                seg2[chunk] = '\0';
+                cJSON_AddStringToObject(body2, "text", seg2);
+                free(seg2);
+            }
+            char *json2 = cJSON_PrintUnformatted(body2);
+            cJSON_Delete(body2);
+            if (json2) {
+                char *resp2 = tg_api_call("sendMessage", json2);
+                free(json2);
+                if (resp2) {
+                    const char *desc2 = NULL;
+                    sent_ok = tg_response_is_ok(resp2, &desc2);
+                    if (!sent_ok) {
+                        ESP_LOGE(TAG, "Plain send failed: %s", desc2 ? desc2 : "unknown");
+                        ESP_LOGE(TAG, "Telegram raw response: %.300s", resp2);
+                    }
+                    free(resp2);
+                } else {
+                    ESP_LOGE(TAG, "Plain send failed: no HTTP response");
+                }
+            } else {
+                ESP_LOGE(TAG, "Plain send failed: no JSON body");
+            }
+        }
+
+        if (!sent_ok) {
+            all_ok = 0;
+        } else {
+            if (markdown_failed) {
+                ESP_LOGI(TAG, "Plain-text fallback succeeded for %s", chat_id);
+            }
+            ESP_LOGI(TAG, "Telegram send success to %s (%d bytes)", chat_id, (int)chunk);
+        }
+
+        free(resp);
         offset += chunk;
     }
 
-    return ESP_OK;
+    return all_ok ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t telegram_set_token(const char *token)
