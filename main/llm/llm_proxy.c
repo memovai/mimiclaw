@@ -139,19 +139,47 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+static bool provider_is_zai(void)
+{
+    return strcmp(s_provider, "zai") == 0;
+}
+
+static bool provider_is_openai_style(void)
+{
+    return provider_is_openai() || provider_is_zai();
+}
+
 static const char *llm_api_url(void)
 {
-    return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
+    if (provider_is_openai()) {
+        return MIMI_OPENAI_API_URL;
+    } else if (provider_is_zai()) {
+        return MIMI_ZAI_API_URL;
+    } else {
+        return MIMI_LLM_API_URL;
+    }
 }
 
 static const char *llm_api_host(void)
 {
-    return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
+    if (provider_is_openai()) {
+        return MIMI_OPENAI_API_HOST;
+    } else if (provider_is_zai()) {
+        return MIMI_ZAI_API_HOST;
+    } else {
+        return MIMI_LLM_API_HOST;
+    }
 }
 
 static const char *llm_api_path(void)
 {
-    return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
+    if (provider_is_openai()) {
+        return MIMI_OPENAI_API_PATH;
+    } else if (provider_is_zai()) {
+        return MIMI_ZAI_API_PATH;
+    } else {
+        return MIMI_LLM_API_PATH;
+    }
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
@@ -217,7 +245,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    if (provider_is_openai()) {
+    if (provider_is_openai_style()) {
         if (s_api_key[0]) {
             char auth[LLM_API_KEY_MAX_LEN + 16];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
@@ -245,7 +273,7 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
     int body_len = strlen(post_data);
     char header[1024];
     int hlen = 0;
-    if (provider_is_openai()) {
+    if (provider_is_openai_style()) {
         hlen = snprintf(header, sizeof(header),
             "POST %s HTTP/1.1\r\n"
             "Host: %s\r\n"
@@ -538,7 +566,7 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai_style()) {
         cJSON *messages = cJSON_Parse(messages_json);
         if (!messages) {
             messages = cJSON_CreateArray();
@@ -615,7 +643,7 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai_style()) {
         extract_text_openai(root, response_buf, buf_size);
     } else {
         extract_text_anthropic(root, response_buf, buf_size);
@@ -664,7 +692,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai_style()) {
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
         cJSON_AddItemToObject(body, "messages", openai_msgs);
 
@@ -734,7 +762,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai_style()) {
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
         cJSON *choice0 = choices && cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
         if (choice0) {
