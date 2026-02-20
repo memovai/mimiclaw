@@ -139,19 +139,42 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+static bool provider_is_doubao(void)
+{
+    return strcmp(s_provider, "doubao") == 0;
+}
+
 static const char *llm_api_url(void)
 {
-    return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
+    if (provider_is_openai()) {
+        return MIMI_OPENAI_API_URL;
+    } else if (provider_is_doubao()) {
+        return MIMI_DOUBAO_API_URL;
+    } else {
+        return MIMI_LLM_API_URL;
+    }
 }
 
 static const char *llm_api_host(void)
 {
-    return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
+    if (provider_is_openai()) {
+        return "api.openai.com";
+    } else if (provider_is_doubao()) {
+        return "ark.cn-beijing.volces.com";
+    } else {
+        return "api.anthropic.com";
+    }
 }
 
 static const char *llm_api_path(void)
 {
-    return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
+    if (provider_is_openai()) {
+        return "/v1/chat/completions";
+    } else if (provider_is_doubao()) {
+        return "/api/v3/chat/completions";
+    } else {
+        return "/v1/messages";
+    }
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
@@ -177,6 +200,7 @@ esp_err_t llm_proxy_init(void)
         if (nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
             safe_copy(s_api_key, sizeof(s_api_key), tmp);
         }
+
         char model_tmp[LLM_MODEL_MAX_LEN] = {0};
         len = sizeof(model_tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_MODEL, model_tmp, &len) == ESP_OK && model_tmp[0]) {
@@ -217,7 +241,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_doubao()) {
         if (s_api_key[0]) {
             char auth[LLM_API_KEY_MAX_LEN + 16];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
@@ -245,7 +269,7 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
     int body_len = strlen(post_data);
     char header[1024];
     int hlen = 0;
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_doubao()) {
         hlen = snprintf(header, sizeof(header),
             "POST %s HTTP/1.1\r\n"
             "Host: %s\r\n"
@@ -538,7 +562,7 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_doubao()) {
         cJSON *messages = cJSON_Parse(messages_json);
         if (!messages) {
             messages = cJSON_CreateArray();
@@ -615,7 +639,7 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_doubao()) {
         extract_text_openai(root, response_buf, buf_size);
     } else {
         extract_text_anthropic(root, response_buf, buf_size);
@@ -664,7 +688,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_doubao()) {
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
         cJSON_AddItemToObject(body, "messages", openai_msgs);
 
@@ -734,7 +758,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_doubao()) {
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
         cJSON *choice0 = choices && cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
         if (choice0) {
