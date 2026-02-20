@@ -35,7 +35,9 @@ CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# Console: UART primary (non-blocking), USB Serial/JTAG secondary
-# Prevents device hang when no USB host is connected (issue #60)
+# Console: UART only (non-blocking, works without a USB host)
+# Using USB Serial/JTAG as secondary console causes esp_log writes to block
+# when the TX FIFO is full and no USB host is connected (wall charger / power bank),
+# completely freezing the device. UART is always non-blocking regardless of USB state.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
-CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
