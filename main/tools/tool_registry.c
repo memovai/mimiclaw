@@ -3,6 +3,7 @@
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
+#include "tools/tool_web_reader.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -174,6 +175,20 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* Register web_reader (Jina) */
+    tool_web_reader_init();
+
+    mimi_tool_t wr = {
+        .name = "web_reader",
+        .description = "Fetch and read a web page. Returns the page content as clean readable text. Use this when you need to read the full content of a specific URL.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"url\":{\"type\":\"string\",\"description\":\"The full URL to read, e.g. https://example.com\"}},"
+            "\"required\":[\"url\"]}",
+        .execute = tool_web_reader_execute,
+    };
+    register_tool(&wr);
 
     build_tools_json();
 

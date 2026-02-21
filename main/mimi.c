@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_spiffs.h"
 #include "nvs_flash.h"
+#include "esp_sntp.h"
 
 #include "mimi_config.h"
 #include "bus/message_bus.h"
@@ -145,6 +146,37 @@ void app_main(void)
         ESP_LOGI(TAG, "Waiting for WiFi connection...");
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
+
+            /* Initialize SNTP for time synchronization */
+            ESP_LOGI(TAG, "Initializing SNTP...");
+            
+            /* Set timezone */
+            setenv("TZ", MIMI_TIMEZONE, 1);
+            tzset();
+            
+            esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+            esp_sntp_setservername(0, "pool.ntp.org");
+            esp_sntp_setservername(1, "time.google.com");
+            esp_sntp_init();
+
+            /* Wait for time synchronization (optional: up to 10 seconds) */
+            time_t now = 0;
+            struct tm timeinfo = {0};
+            int retry = 0;
+            const int retry_count = 20;
+            while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+                ESP_LOGI(TAG, "Waiting for SNTP sync... (%d/%d)", retry, retry_count);
+                vTaskDelay(pdMS_TO_TICKS(500));
+            }
+            time(&now);
+            localtime_r(&now, &timeinfo);
+            if (timeinfo.tm_year > (2016 - 1900)) {
+                char strftime_buf[64];
+                strftime(strftime_buf, sizeof(strftime_buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+                ESP_LOGI(TAG, "SNTP sync complete. Current time: %s", strftime_buf);
+            } else {
+                ESP_LOGW(TAG, "SNTP sync timeout, time may be inaccurate");
+            }
 
             /* Outbound dispatch task should start first to avoid dropping early replies. */
             ESP_ERROR_CHECK((xTaskCreatePinnedToCore(

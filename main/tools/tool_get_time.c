@@ -141,21 +141,36 @@ static esp_err_t fetch_time_direct(char *out, size_t out_size)
 
 esp_err_t tool_get_time_execute(const char *input_json, char *output, size_t output_size)
 {
-    ESP_LOGI(TAG, "Fetching current time...");
+    ESP_LOGI(TAG, "Getting current time...");
 
-    esp_err_t err;
-    if (http_proxy_is_enabled()) {
-        err = fetch_time_via_proxy(output, output_size);
-    } else {
-        err = fetch_time_direct(output, output_size);
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    /* Check if time is valid (year > 2016) */
+    if (timeinfo.tm_year < (2016 - 1900)) {
+        /* Time not synchronized yet, try HTTP fallback */
+        ESP_LOGW(TAG, "System time not synced, trying HTTP fallback...");
+        esp_err_t err;
+        if (http_proxy_is_enabled()) {
+            err = fetch_time_via_proxy(output, output_size);
+        } else {
+            err = fetch_time_direct(output, output_size);
+        }
+
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Time from HTTP: %s", output);
+        } else {
+            snprintf(output, output_size, "Error: failed to fetch time (%s)", esp_err_to_name(err));
+            ESP_LOGE(TAG, "%s", output);
+        }
+        return err;
     }
 
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Time: %s", output);
-    } else {
-        snprintf(output, output_size, "Error: failed to fetch time (%s)", esp_err_to_name(err));
-        ESP_LOGE(TAG, "%s", output);
-    }
+    /* Format in local time (already synced via SNTP) */
+    strftime(output, output_size, "%Y-%m-%d %H:%M:%S %Z (%A)", &timeinfo);
+    ESP_LOGI(TAG, "Time: %s", output);
 
-    return err;
+    return ESP_OK;
 }

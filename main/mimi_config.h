@@ -34,6 +34,9 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_JINA_KEY
+#define MIMI_SECRET_JINA_KEY        ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -114,6 +117,7 @@
 #define MIMI_NVS_LLM                 "llm_config"
 #define MIMI_NVS_PROXY               "proxy_config"
 #define MIMI_NVS_SEARCH              "search_config"
+#define MIMI_NVS_JINA                "jina_config"
 
 /* NVS Keys */
 #define MIMI_NVS_KEY_SSID            "ssid"
