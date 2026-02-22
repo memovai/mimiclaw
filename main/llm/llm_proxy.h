@@ -27,18 +27,6 @@ esp_err_t llm_set_provider(const char *provider);
  */
 esp_err_t llm_set_model(const char *model);
 
-/**
- * Send a chat completion request to the configured LLM API (non-streaming).
- *
- * @param system_prompt  System prompt string
- * @param messages_json  JSON array of messages: [{"role":"user","content":"..."},...]
- * @param response_buf   Output buffer for the complete response text
- * @param buf_size       Size of response_buf
- * @return ESP_OK on success
- */
-esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
-                   char *response_buf, size_t buf_size);
-
 /* ── Tool Use Support ──────────────────────────────────────────── */
 
 typedef struct {

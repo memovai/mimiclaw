@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
-#include "cJSON.h"
 
 static const char *TAG = "context";
 
@@ -93,35 +92,5 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
     }
 
     ESP_LOGI(TAG, "System prompt built: %d bytes", (int)off);
-    return ESP_OK;
-}
-
-esp_err_t context_build_messages(const char *history_json, const char *user_message,
-                                 char *buf, size_t size)
-{
-    /* Parse existing history */
-    cJSON *history = cJSON_Parse(history_json);
-    if (!history) {
-        history = cJSON_CreateArray();
-    }
-
-    /* Append current user message */
-    cJSON *user_msg = cJSON_CreateObject();
-    cJSON_AddStringToObject(user_msg, "role", "user");
-    cJSON_AddStringToObject(user_msg, "content", user_message);
-    cJSON_AddItemToArray(history, user_msg);
-
-    /* Serialize */
-    char *json_str = cJSON_PrintUnformatted(history);
-    cJSON_Delete(history);
-
-    if (json_str) {
-        strncpy(buf, json_str, size - 1);
-        buf[size - 1] = '\0';
-        free(json_str);
-    } else {
-        snprintf(buf, size, "[{\"role\":\"user\",\"content\":\"%s\"}]", user_message);
-    }
-
     return ESP_OK;
 }

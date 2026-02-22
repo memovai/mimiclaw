@@ -12,14 +12,3 @@
  */
 esp_err_t context_build_system_prompt(char *buf, size_t size);
 
-/**
- * Build the complete messages JSON array for LLM call.
- * Combines session history + current user message.
- *
- * @param history_json    JSON array from session_get_history_json()
- * @param user_message    Current user message text
- * @param buf             Output buffer
- * @param size            Buffer size
- */
-esp_err_t context_build_messages(const char *history_json, const char *user_message,
-                                 char *buf, size_t size);

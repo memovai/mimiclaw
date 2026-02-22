@@ -110,6 +110,11 @@ static esp_err_t fetch_time_direct(char *out, size_t out_size)
         return ESP_ERR_NOT_FOUND;
     }
 
+    /* Get Date header */
+    char *date_ptr = NULL;
+    esp_http_client_get_header(client, "Date", &date_ptr);
+    esp_http_client_cleanup(client);
+
     /* Parse and set the time using the caught string */
     bool success = parse_and_set_time(s_date_header, out, out_size);
     return success ? ESP_OK : ESP_FAIL;

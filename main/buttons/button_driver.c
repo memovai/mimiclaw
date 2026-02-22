@@ -2,50 +2,41 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "driver/gpio.h" 
-#include "ui/config_screen.h"
+#include "driver/gpio.h"
 
-void  ESP32_Button_init(void){
-  gpio_reset_pin(Button_PIN1);                        
-  gpio_set_direction(Button_PIN1, GPIO_MODE_INPUT);   
-  gpio_set_pull_mode(Button_PIN1, GPIO_PULLUP_ONLY);   
+static void ESP32_Button_init(void){
+  gpio_reset_pin(Button_PIN1);
+  gpio_set_direction(Button_PIN1, GPIO_MODE_INPUT);
+  gpio_set_pull_mode(Button_PIN1, GPIO_PULLUP_ONLY);
 }
-uint8_t Button_GPIO_Get_Level(int GPIO_PIN){                
-  return (uint8_t)(gpio_get_level(GPIO_PIN));
-}
-void Timer_Callback(void *arg){                             
-  button_ticks();                                       
+static void Timer_Callback(void *arg){
+  button_ticks();
 }
 
-
-
-struct Button BUTTON1;                   
-PressEvent BOOT_KEY_State,PWR_KEY_State;                    
-uint8_t Read_Button_GPIO_Level(uint8_t button_id)           
+struct Button BUTTON1;
+PressEvent BOOT_KEY_State;
+static uint8_t Read_Button_GPIO_Level(uint8_t button_id)
 {
-  if(!button_id)                        
+  if(!button_id)
     return (uint8_t)(gpio_get_level(Button_PIN1));
   return 0;
 }
-void Button_SINGLE_CLICK_Callback(void* btn){          
-  struct Button *user_button = (struct Button *)btn;      
-  if(user_button == &BUTTON1){                      
-    BOOT_KEY_State = SINGLE_CLICK;                    
-    if (config_screen_is_active()) {
-      config_screen_scroll_down();
-    }
+static void Button_SINGLE_CLICK_Callback(void* btn){
+  struct Button *user_button = (struct Button *)btn;
+  if(user_button == &BUTTON1){
+    BOOT_KEY_State = SINGLE_CLICK;
   }
 }
-void Button_DOUBLE_CLICK_Callback(void* btn){              
-  struct Button *user_button = (struct Button *)btn;        
-  if(user_button == &BUTTON1){            
-    BOOT_KEY_State = DOUBLE_CLICK;                
+static void Button_DOUBLE_CLICK_Callback(void* btn){
+  struct Button *user_button = (struct Button *)btn;
+  if(user_button == &BUTTON1){
+    BOOT_KEY_State = DOUBLE_CLICK;
   }
 }
-void Button_LONG_PRESS_START_Callback(void* btn){        
-  struct Button *user_button = (struct Button *)btn;    
-  if(user_button == &BUTTON1){                      
-    BOOT_KEY_State= LONG_PRESS_START;                
+static void Button_LONG_PRESS_START_Callback(void* btn){
+  struct Button *user_button = (struct Button *)btn;
+  if(user_button == &BUTTON1){
+    BOOT_KEY_State= LONG_PRESS_START;
   }
 }
 void button_Init(void)
