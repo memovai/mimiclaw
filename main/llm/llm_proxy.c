@@ -134,24 +134,24 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 
 /* ── Provider helpers ──────────────────────────────────────────── */
 
-static bool provider_is_openai(void)
+static bool provider_is_openrouter(void)
 {
-    return strcmp(s_provider, "openai") == 0;
+    return strcmp(s_provider, "openrouter") == 0;
 }
 
 static const char *llm_api_url(void)
 {
-    return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
+    return provider_is_openrouter() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
 }
 
 static const char *llm_api_host(void)
 {
-    return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
+    return provider_is_openrouter() ? "openrouter.ai/api" : "api.anthropic.com";
 }
 
 static const char *llm_api_path(void)
 {
-    return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
+    return provider_is_openrouter() ? "/v1/chat/completions" : "/v1/messages";
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
@@ -217,7 +217,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    if (provider_is_openai()) {
+    if (provider_is_openrouter()) {
         if (s_api_key[0]) {
             char auth[LLM_API_KEY_MAX_LEN + 16];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
@@ -245,7 +245,7 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
     int body_len = strlen(post_data);
     char header[1024];
     int hlen = 0;
-    if (provider_is_openai()) {
+    if (provider_is_openrouter()) {
         hlen = snprintf(header, sizeof(header),
             "POST %s HTTP/1.1\r\n"
             "Host: %s\r\n"
@@ -335,7 +335,7 @@ static void extract_text_anthropic(cJSON *root, char *buf, size_t size)
     buf[off] = '\0';
 }
 
-static void extract_text_openai(cJSON *root, char *buf, size_t size)
+static void extract_text_openrouter(cJSON *root, char *buf, size_t size)
 {
     buf[0] = '\0';
     cJSON *choices = cJSON_GetObjectItem(root, "choices");
@@ -350,7 +350,7 @@ static void extract_text_openai(cJSON *root, char *buf, size_t size)
     buf[size - 1] = '\0';
 }
 
-static cJSON *convert_tools_openai(const char *tools_json)
+static cJSON *convert_tools_openrouter(const char *tools_json)
 {
     if (!tools_json) return NULL;
     cJSON *arr = cJSON_Parse(tools_json);
@@ -384,7 +384,7 @@ static cJSON *convert_tools_openai(const char *tools_json)
     return out;
 }
 
-static cJSON *convert_messages_openai(const char *system_prompt, cJSON *messages)
+static cJSON *convert_messages_openrouter(const char *system_prompt, cJSON *messages)
 {
     cJSON *out = cJSON_CreateArray();
     if (system_prompt && system_prompt[0]) {
@@ -532,13 +532,13 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    if (provider_is_openai()) {
+    if (provider_is_openrouter()) {
         cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
     } else {
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openrouter()) {
         cJSON *messages = cJSON_Parse(messages_json);
         if (!messages) {
             messages = cJSON_CreateArray();
@@ -547,9 +547,9 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
             cJSON_AddStringToObject(msg, "content", messages_json);
             cJSON_AddItemToArray(messages, msg);
         }
-        cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
+        cJSON *openrouter_msgs = convert_messages_openrouter(system_prompt, messages);
         cJSON_Delete(messages);
-        cJSON_AddItemToObject(body, "messages", openai_msgs);
+        cJSON_AddItemToObject(body, "messages", openrouter_msgs);
     } else {
         cJSON_AddStringToObject(body, "system", system_prompt);
         cJSON *messages = cJSON_Parse(messages_json);
@@ -615,8 +615,8 @@ esp_err_t llm_chat(const char *system_prompt, const char *messages_json,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
-        extract_text_openai(root, response_buf, buf_size);
+    if (provider_is_openrouter()) {
+        extract_text_openrouter(root, response_buf, buf_size);
     } else {
         extract_text_anthropic(root, response_buf, buf_size);
     }
@@ -658,18 +658,18 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    if (provider_is_openai()) {
+    if (provider_is_openrouter()) {
         cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
     } else {
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai()) {
-        cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
-        cJSON_AddItemToObject(body, "messages", openai_msgs);
+    if (provider_is_openrouter()) {
+        cJSON *openrouter_msgs = convert_messages_openrouter(system_prompt, messages);
+        cJSON_AddItemToObject(body, "messages", openrouter_msgs);
 
         if (tools_json) {
-            cJSON *tools = convert_tools_openai(tools_json);
+            cJSON *tools = convert_tools_openrouter(tools_json);
             if (tools) {
                 cJSON_AddItemToObject(body, "tools", tools);
                 cJSON_AddStringToObject(body, "tool_choice", "auto");
@@ -734,7 +734,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openrouter()) {
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
         cJSON *choice0 = choices && cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
         if (choice0) {
