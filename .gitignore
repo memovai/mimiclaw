@@ -46,3 +46,11 @@ nanobot/
 .DS_Store
 Thumbs.db
 references/
+spiffs_data/HEARTBEAT.md 
+spiffs_data/birthdays.md 
+spiffs_data/todo.md 
+spiffs_data/memory/MEMORY.md 
+spiffs_data/memory/MEMORY.md 
+main/mimi_config.h 
+spiffs_data/config/USER.md 
+spiffs_data/memory/MEMORY.md 

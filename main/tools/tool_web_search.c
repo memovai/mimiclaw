@@ -15,7 +15,7 @@ static const char *TAG = "web_search";
 
 static char s_search_key[128] = {0};
 
-#define SEARCH_BUF_SIZE     (16 * 1024)
+#define SEARCH_BUF_SIZE     (64 * 1024)
 #define SEARCH_RESULT_COUNT 5
 
 /* ── Response accumulator ─────────────────────────────────────── */

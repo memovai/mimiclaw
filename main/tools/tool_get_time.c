@@ -3,6 +3,7 @@
 #include "proxy/http_proxy.h"
 
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
@@ -17,6 +18,20 @@ static const char *MONTHS[] = {
     "Jul","Aug","Sep","Oct","Nov","Dec"
 };
 
+/* Buffer to catch the incoming header */
+static char s_date_header[64] = {0};
+
+/* Event handler to actively listen for the "Date" header in the response */
+static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_HEADER) {
+        if (strcasecmp(evt->header_key, "Date") == 0) {
+            strncpy(s_date_header, evt->header_value, sizeof(s_date_header) - 1);
+        }
+    }
+    return ESP_OK;
+}
+
 /* Parse "Sat, 01 Feb 2025 10:25:00 GMT" → set system clock, return formatted string */
 static bool parse_and_set_time(const char *date_str, char *out, size_t out_size)
 {
@@ -30,132 +45,92 @@ static bool parse_and_set_time(const char *date_str, char *out, size_t out_size)
 
     int mon = -1;
     for (int i = 0; i < 12; i++) {
-        if (strcmp(mon_str, MONTHS[i]) == 0) { mon = i; break; }
+        if (strcmp(mon_str, MONTHS[i]) == 0) {
+            mon = i;
+            break;
+        }
     }
-    if (mon < 0) return false;
+    if (mon == -1) return false;
 
-    struct tm tm = {
-        .tm_sec = sec, .tm_min = min, .tm_hour = hour,
-        .tm_mday = day, .tm_mon = mon, .tm_year = year - 1900,
-    };
+    struct tm tm_time = {0};
+    tm_time.tm_year = year - 1900;
+    tm_time.tm_mon = mon;
+    tm_time.tm_mday = day;
+    tm_time.tm_hour = hour;
+    tm_time.tm_min = min;
+    tm_time.tm_sec = sec;
 
-    /* Convert UTC to epoch — mktime expects local, so temporarily set UTC */
-    setenv("TZ", "UTC0", 1);
+    /* Temporarily set TZ to GMT to convert the parsed string correctly */
+    setenv("TZ", "GMT0", 1);
     tzset();
-    time_t t = mktime(&tm);
+    time_t t = mktime(&tm_time);
 
-    /* Restore timezone */
-    setenv("TZ", MIMI_TIMEZONE, 1);
-    tzset();
-
-    if (t < 0) return false;
-
-    struct timeval tv = { .tv_sec = t };
+    /* Set the ESP32 hardware system time */
+    struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
     settimeofday(&tv, NULL);
 
-    /* Format in local time */
-    struct tm local;
-    localtime_r(&t, &local);
-    strftime(out, out_size, "%Y-%m-%d %H:%M:%S %Z (%A)", &local);
+    /* Set the timezone permanently for Sabah (UTC+8) */
+    setenv("TZ", "MYT-8", 1);
+    tzset();
 
+    /* Format the output string in local time for the LLM to read */
+    struct tm local_tm;
+    localtime_r(&t, &local_tm);
+    strftime(out, out_size, "%Y-%m-%d %I:%M %p", &local_tm);
+
+    ESP_LOGI(TAG, "System time synced! Local Time: %s", out);
     return true;
 }
 
-/* Fetch time via proxy: HEAD request to api.telegram.org, parse Date header */
-static esp_err_t fetch_time_via_proxy(char *out, size_t out_size)
-{
-    proxy_conn_t *conn = proxy_conn_open("api.telegram.org", 443, 10000);
-    if (!conn) return ESP_ERR_HTTP_CONNECT;
-
-    const char *req =
-        "HEAD / HTTP/1.1\r\n"
-        "Host: api.telegram.org\r\n"
-        "Connection: close\r\n\r\n";
-
-    if (proxy_conn_write(conn, req, strlen(req)) < 0) {
-        proxy_conn_close(conn);
-        return ESP_ERR_HTTP_WRITE_DATA;
-    }
-
-    char buf[1024];
-    int total = 0;
-    while (total < (int)sizeof(buf) - 1) {
-        int n = proxy_conn_read(conn, buf + total, sizeof(buf) - 1 - total, 10000);
-        if (n <= 0) break;
-        total += n;
-        buf[total] = '\0';
-        if (strstr(buf, "\r\n\r\n")) break;
-    }
-    proxy_conn_close(conn);
-
-    /* Find Date header */
-    char *date_hdr = strcasestr(buf, "\r\nDate: ");
-    if (!date_hdr) return ESP_ERR_NOT_FOUND;
-    date_hdr += 8;
-
-    char *eol = strstr(date_hdr, "\r\n");
-    if (!eol) return ESP_ERR_NOT_FOUND;
-
-    char date_val[64];
-    size_t dlen = eol - date_hdr;
-    if (dlen >= sizeof(date_val)) return ESP_ERR_NOT_FOUND;
-    memcpy(date_val, date_hdr, dlen);
-    date_val[dlen] = '\0';
-
-    if (!parse_and_set_time(date_val, out, out_size)) return ESP_FAIL;
-    return ESP_OK;
-}
-
-/* Fetch time via direct HTTPS */
 static esp_err_t fetch_time_direct(char *out, size_t out_size)
 {
+    /* Clear the buffer before making the request */
+    s_date_header[0] = '\0';
+
     esp_http_client_config_t config = {
-        .url = "https://api.telegram.org/",
-        .method = HTTP_METHOD_HEAD,
+        .url = "http://clients3.google.com/generate_204",
+        .method = HTTP_METHOD_GET,
         .timeout_ms = 10000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .event_handler = _http_event_handler, /* Attach our listener */
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) return ESP_FAIL;
 
     esp_err_t err = esp_http_client_perform(client);
+    esp_http_client_cleanup(client);
+
+    /* Check if the HTTP request failed entirely */
     if (err != ESP_OK) {
-        esp_http_client_cleanup(client);
         return err;
     }
 
-    /* Get Date header */
-    char date_val[64] = {0};
-    err = esp_http_client_get_header(client, "Date", (char **)&date_val);
-    /* esp_http_client_get_header returns pointer, not copy */
-    char *date_ptr = NULL;
-    esp_http_client_get_header(client, "Date", &date_ptr);
-    esp_http_client_cleanup(client);
+    /* Check if the event handler successfully caught the Date header */
+    if (s_date_header[0] == '\0') {
+        return ESP_ERR_NOT_FOUND;
+    }
 
-    if (!date_ptr || date_ptr[0] == '\0') return ESP_ERR_NOT_FOUND;
-
-    if (!parse_and_set_time(date_ptr, out, out_size)) return ESP_FAIL;
-    return ESP_OK;
+    /* Parse and set the time using the caught string */
+    bool success = parse_and_set_time(s_date_header, out, out_size);
+    return success ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t tool_get_time_execute(const char *input_json, char *output, size_t output_size)
 {
     ESP_LOGI(TAG, "Fetching current time...");
-
+    
     esp_err_t err;
     if (http_proxy_is_enabled()) {
-        err = fetch_time_via_proxy(output, output_size);
+        err = fetch_time_direct(output, output_size); 
     } else {
         err = fetch_time_direct(output, output_size);
     }
-
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Time: %s", output);
-    } else {
-        snprintf(output, output_size, "Error: failed to fetch time (%s)", esp_err_to_name(err));
-        ESP_LOGE(TAG, "%s", output);
+    
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error: failed to fetch time (%s)", esp_err_to_name(err));
+        snprintf(output, output_size, "Error: failed to fetch time");
+        return err;
     }
-
-    return err;
+    
+    return ESP_OK;
 }
