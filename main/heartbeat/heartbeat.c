@@ -82,8 +82,15 @@ static bool heartbeat_send(void)
 
     mimi_msg_t msg;
     memset(&msg, 0, sizeof(msg));
-    strncpy(msg.channel, MIMI_CHAN_SYSTEM, sizeof(msg.channel) - 1);
-    strncpy(msg.chat_id, "heartbeat", sizeof(msg.chat_id) - 1);
+    /* Use Telegram delivery if a chat_id was compiled in, else log silently */
+    const char *hb_chat_id = MIMI_SECRET_HEARTBEAT_CHAT_ID;
+    if (hb_chat_id[0] != '\0') {
+        strncpy(msg.channel, MIMI_CHAN_TELEGRAM, sizeof(msg.channel) - 1);
+        strncpy(msg.chat_id, hb_chat_id, sizeof(msg.chat_id) - 1);
+    } else {
+        strncpy(msg.channel, MIMI_CHAN_SYSTEM, sizeof(msg.channel) - 1);
+        strncpy(msg.chat_id, "heartbeat", sizeof(msg.chat_id) - 1);
+    }
     msg.content = strdup(HEARTBEAT_PROMPT);
 
     if (!msg.content) {

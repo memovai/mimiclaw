@@ -34,6 +34,9 @@
 #ifndef MIMI_SECRET_SEARCH_KEY
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
+#ifndef MIMI_SECRET_HEARTBEAT_CHAT_ID
+#define MIMI_SECRET_HEARTBEAT_CHAT_ID  ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
