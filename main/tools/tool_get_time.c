@@ -88,16 +88,19 @@ static esp_err_t fetch_time_direct(char *out, size_t out_size)
     s_date_header[0] = '\0';
 
     esp_http_client_config_t config = {
-        .url = "http://clients3.google.com/generate_204",
+        .url = "https://clients3.google.com/generate_204",
         .method = HTTP_METHOD_GET,
         .timeout_ms = 10000,
         .event_handler = _http_event_handler, /* Attach our listener */
+        .crt_bundle_attach = esp_crt_bundle_attach, /* Secure TLS bundle */
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) return ESP_FAIL;
 
     esp_err_t err = esp_http_client_perform(client);
+    
+    /* Clean up the client memory safely and EXACTLY ONCE */
     esp_http_client_cleanup(client);
 
     /* Check if the HTTP request failed entirely */
@@ -109,11 +112,6 @@ static esp_err_t fetch_time_direct(char *out, size_t out_size)
     if (s_date_header[0] == '\0') {
         return ESP_ERR_NOT_FOUND;
     }
-
-    /* Get Date header */
-    char *date_ptr = NULL;
-    esp_http_client_get_header(client, "Date", &date_ptr);
-    esp_http_client_cleanup(client);
 
     /* Parse and set the time using the caught string */
     bool success = parse_and_set_time(s_date_header, out, out_size);
