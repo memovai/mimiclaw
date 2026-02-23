@@ -74,16 +74,22 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
     off = append_file(buf, size, off, MIMI_SOUL_FILE, "Personality");
     off = append_file(buf, size, off, MIMI_USER_FILE, "User Info");
 
-    /* Long-term memory */
-    char mem_buf[4096];
-    if (memory_read_long_term(mem_buf, sizeof(mem_buf)) == ESP_OK && mem_buf[0]) {
-        off += snprintf(buf + off, size - off, "\n## Long-term Memory\n\n%s\n", mem_buf);
+    /* Long-term memory — heap allocated to avoid stack pressure */
+    char *mem_buf = malloc(6 * 1024);
+    if (mem_buf) {
+        if (memory_read_long_term(mem_buf, 6 * 1024) == ESP_OK && mem_buf[0]) {
+            off += snprintf(buf + off, size - off, "\n## Long-term Memory\n\n%s\n", mem_buf);
+        }
+        free(mem_buf);
     }
 
-    /* Recent daily notes (last 3 days) */
-    char recent_buf[4096];
-    if (memory_read_recent(recent_buf, sizeof(recent_buf), 3) == ESP_OK && recent_buf[0]) {
-        off += snprintf(buf + off, size - off, "\n## Recent Notes\n\n%s\n", recent_buf);
+    /* Recent daily notes — heap allocated */
+    char *recent_buf = malloc(4 * 1024);
+    if (recent_buf) {
+        if (memory_read_recent(recent_buf, 4 * 1024, 3) == ESP_OK && recent_buf[0]) {
+            off += snprintf(buf + off, size - off, "\n## Recent Notes\n\n%s\n", recent_buf);
+        }
+        free(recent_buf);
     }
 
     /* Skills */
