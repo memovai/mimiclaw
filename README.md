@@ -213,15 +213,120 @@ Or set it from the browser in the web console **Settings** tab. The key is store
 
 ## Skills
 
-Skills are Markdown files at `/spiffs/skills/<name>.md`. The agent reads them as part of its system prompt so it knows what capabilities are available and how to use them.
+Skills are Markdown files at `/spiffs/skills/<name>.md`. On every agent turn, C6PO scans the skills directory and injects a summary (title + first paragraph) of each skill into its system prompt — no registration needed. When a task matches a skill, the agent calls `read_file` to get the full instructions, then follows them.
 
 Three built-in skills are installed on first boot: **weather**, **daily-briefing**, and **skill-creator**.
 
-Create new skills from the **Skills tab** in the web console, or just ask the bot:
+### Creating skills
 
-> "Create a skill that translates text to French"
+**From Telegram** — just ask:
+> "Create a skill called reminder. When I say 'remind me to X at Y time', use get_current_time to get the current timestamp, calculate the target unix epoch, then call cron_add with schedule_type=at, delete_after_run=true, channel=telegram, and my chat_id."
+
+C6PO will write the skill file itself using `write_file`.
+
+**From the web console** — Skills tab → enter name and content → Save.
+
+**Skill file format:**
+```markdown
+# Skill Title
+
+One-sentence description of what this skill does.
+
+## When to use
+Trigger keywords or conditions that indicate this skill applies.
+
+## How to use
+1. Step one — reference specific tool names (e.g. web_search, write_file, cron_add)
+2. Step two
+3. Step three
+```
+
+### Practical skill ideas
+
+| Skill | What to ask C6PO |
+|---|---|
+| **task-manager** | "Create a skill called task-manager that lets me add, list, and complete tasks in HEARTBEAT.md using read_file and edit_file" |
+| **reminder** | "Create a skill called reminder — when I say 'remind me to X at Y', use cron_add with schedule_type=at, delete_after_run=true, and send to me on Telegram" |
+| **news-digest** | "Create a skill called news-digest — when asked, web_search for my topics and summarise the top 5 stories in bullets" |
+| **weekly-summary** | "Create a skill called weekly-summary — read MEMORY.md and any daily notes from the past 7 days, then write a 5-bullet summary" |
 
 > **Note:** Skills are stored in SPIFFS. Custom skills are reset by `idf.py flash` (full flash). Use `idf.py app-flash` to update firmware without touching SPIFFS.
+
+---
+
+## Heartbeat & Cron
+
+C6PO has two autonomous scheduling systems that run without any user input.
+
+### HEARTBEAT.md — background task list
+
+`/spiffs/HEARTBEAT.md` is checked every **30 minutes**. Any line that is not a blank line, a `# header`, or a completed `- [x]` checkbox is treated as an actionable task. When actionable tasks exist, the agent is asked to read the file and act on them.
+
+**Example HEARTBEAT.md:**
+```markdown
+# Heartbeat Tasks
+
+- [ ] Check if I have any pending reminders and mention them
+- [ ] If it's Monday, suggest a focus goal for the week
+- [ ] Append a brief note about anything interesting to today's daily note
+```
+
+Mark a task done by asking C6PO to check it off, or change `- [ ]` to `- [x]` yourself in the web console.
+
+**Deliver heartbeat responses to Telegram:**
+
+By default, heartbeat results only appear in the serial log. To receive them on Telegram, add your numeric chat_id to `mimi_secrets.h` before building:
+
+```c
+#define MIMI_SECRET_HEARTBEAT_CHAT_ID  "123456789"
+```
+
+Get your chat_id by sending C6PO any message and watching the serial log for:
+```
+I (...) telegram_bot: inbound chat_id=123456789
+```
+
+Then rebuild and flash: `idf.py app-flash`. Leave the value as `""` to keep heartbeat silent.
+
+**Trigger manually** from the serial CLI:
+```
+heartbeat_trigger
+```
+
+### Cron — scheduled messages
+
+`/spiffs/cron.json` holds up to 16 jobs, each checked every minute. Two types:
+
+| Type | When it fires |
+|---|---|
+| `every` | Repeatedly, every N seconds |
+| `at` | Once, at a specific unix timestamp |
+
+**Create cron jobs from Telegram:**
+> "Schedule a daily briefing every morning at 8am — use the daily-briefing skill and send it to me on Telegram"
+
+C6PO calls `cron_add` with the right parameters automatically.
+
+**Example jobs:**
+
+Daily briefing at 8am:
+```json
+{ "schedule_type": "every", "interval_s": 86400,
+  "message": "Give me a daily briefing using the daily-briefing skill",
+  "channel": "telegram", "chat_id": "123456789" }
+```
+
+One-shot reminder:
+```json
+{ "schedule_type": "at", "run_at": 1740000000,
+  "message": "Remind me to review the quarterly report",
+  "channel": "telegram", "chat_id": "123456789",
+  "delete_after_run": true }
+```
+
+List or delete jobs from Telegram:
+> "Show me all my cron jobs"
+> "Delete the daily briefing cron job"
 
 ---
 
@@ -258,6 +363,7 @@ Connect at 115200 baud and type `help` for the full command list. Key commands:
 | `session_list` | List active chat sessions |
 | `session_clear <id>` | Clear conversation history for a chat |
 | `skill_list` | List installed skills |
+| `heartbeat_trigger` | Manually trigger a heartbeat check now |
 | `restart` | Reboot the device |
 
 ---
