@@ -217,6 +217,20 @@ Skills are Markdown files at `/spiffs/skills/<name>.md`. On every agent turn, C6
 
 Three built-in skills are installed on first boot: **weather**, **daily-briefing**, and **skill-creator**.
 
+### Discovering skills
+
+View installed skills from the serial CLI:
+
+```
+mimi> skill_list                    # show all skills with descriptions
+mimi> skill_show daily-briefing     # print full content of one skill
+mimi> skill_search weather          # search skills by keyword
+```
+
+Or from Telegram:
+> "List all your skills"
+> "Show me the daily-briefing skill instructions"
+
 ### Creating skills
 
 **From Telegram** — just ask:
@@ -250,6 +264,15 @@ Trigger keywords or conditions that indicate this skill applies.
 | **news-digest** | "Create a skill called news-digest — when asked, web_search for my topics and summarise the top 5 stories in bullets" |
 | **weekly-summary** | "Create a skill called weekly-summary — read MEMORY.md and any daily notes from the past 7 days, then write a 5-bullet summary" |
 
+### Testing a skill
+
+After creating a skill, verify it was saved:
+```
+mimi> skill_show <name>
+```
+
+Then trigger it from Telegram with a natural request that matches the skill's "When to use" section. Watch the web console **Live Log** — you'll see the agent call `read_file /spiffs/skills/<name>.md` when it recognises the skill applies.
+
 > **Note:** Skills are stored in SPIFFS. Custom skills are reset by `idf.py flash` (full flash). Use `idf.py app-flash` to update firmware without touching SPIFFS.
 
 ---
@@ -262,31 +285,55 @@ C6PO has two autonomous scheduling systems that run without any user input.
 
 `/spiffs/HEARTBEAT.md` is checked every **30 minutes**. Any line that is not a blank line, a `# header`, or a completed `- [x]` checkbox is treated as an actionable task. When actionable tasks exist, the agent is asked to read the file and act on them.
 
+### Setup
+
+Heartbeat responses are silent by default (serial log only). To receive them on Telegram:
+
+**Step 1 — Find your chat_id**
+Send any message to your bot, then open the web console **Live Log** tab.
+Look for a line like:
+```
+[task] from telegram:5538967144
+```
+The number after the colon is your chat_id.
+
+**Step 2 — Set it in mimi_secrets.h**
+```c
+#define MIMI_SECRET_HEARTBEAT_CHAT_ID  "5538967144"
+```
+> This is a compile-time setting — there is no CLI command for it. Any non-empty value
+> enables Telegram delivery; leave it as `""` to keep heartbeat silent.
+
+**Step 3 — Rebuild and flash**
+```bash
+scripts/build_c6.sh app-flash
+```
+
+**Step 4 — Add your first task**
+Open the web console **HEARTBEAT.md** tab and add a line:
+```markdown
+- [ ] What's happening in tech today? Give me a 3-bullet summary.
+```
+
+**Step 5 — Test immediately**
+```
+mimi> heartbeat_trigger
+```
+You'll get a Telegram message within a few seconds (assuming the task is actionable).
+The heartbeat also fires automatically every 30 minutes.
+
 **Example HEARTBEAT.md:**
 ```markdown
 # Heartbeat Tasks
 
-- [ ] Check if I have any pending reminders and mention them
-- [ ] If it's Monday, suggest a focus goal for the week
-- [ ] Append a brief note about anything interesting to today's daily note
+- [ ] What's happening in tech today? 3-bullet summary.
+- [ ] Check the weather for London and let me know if I need an umbrella.
+- [ ] If it's Monday, suggest a focus goal for the week.
+- [x] Set up daily briefing cron job          ← completed tasks are skipped
 ```
 
-Mark a task done by asking C6PO to check it off, or change `- [ ]` to `- [x]` yourself in the web console.
-
-**Deliver heartbeat responses to Telegram:**
-
-By default, heartbeat results only appear in the serial log. To receive them on Telegram, add your numeric chat_id to `mimi_secrets.h` before building:
-
-```c
-#define MIMI_SECRET_HEARTBEAT_CHAT_ID  "123456789"
-```
-
-Get your chat_id by sending C6PO any message and watching the serial log for:
-```
-I (...) telegram_bot: inbound chat_id=123456789
-```
-
-Then rebuild and flash: `idf.py app-flash`. Leave the value as `""` to keep heartbeat silent.
+> Only lines that are not headers, blanks, or `- [x]` completed items trigger the agent.
+> Mark tasks done by editing HEARTBEAT.md in the web console, or ask C6PO to check them off.
 
 **Trigger manually** from the serial CLI:
 ```
@@ -328,6 +375,28 @@ List or delete jobs from Telegram:
 > "Show me all my cron jobs"
 > "Delete the daily briefing cron job"
 
+### Recipe: Daily briefing on Telegram every morning
+
+The `daily-briefing` skill is built in. To schedule it, send this to your bot:
+
+> "Schedule a daily briefing every morning at 8am using the daily-briefing skill. Send it to me on Telegram."
+
+C6PO will call `get_current_time` to find the next 8am epoch, then `cron_add` with:
+- `schedule_type`: `every`, `interval_s`: `86400`
+- `message`: the briefing prompt
+- `channel`: `telegram`, `chat_id`: your chat_id
+
+Verify it was created:
+> "Show me all my cron jobs"
+
+To remove it later:
+> "Delete the daily briefing cron job"
+
+Or from the CLI:
+```
+mimi> tool_exec cron_list {}
+```
+
 ---
 
 ## Memory Management
@@ -357,13 +426,21 @@ Connect at 115200 baud and type `help` for the full command list. Key commands:
 | `set_model <model>` | Set model name |
 | `set_search_key <key>` | Set Brave Search API key |
 | `config_show` | Show all current settings |
+| `config_reset` | Clear all NVS overrides and revert to build-time defaults |
+| `set_proxy <host> <port>` | Set HTTP proxy for LLM and search requests |
+| `clear_proxy` | Remove HTTP proxy configuration |
 | `wifi_status` | Show WiFi connection info |
 | `wifi_scan` | Scan for nearby networks |
 | `heap_info` | Show free heap and minimum heap |
 | `session_list` | List active chat sessions |
 | `session_clear <id>` | Clear conversation history for a chat |
+| `memory_read` | Display the current contents of MEMORY.md |
+| `memory_write <content>` | Overwrite MEMORY.md with new content |
 | `skill_list` | List installed skills |
+| `skill_show <name>` | Print full content of one skill file |
+| `skill_search <keyword>` | Search skill content and filenames by keyword |
 | `heartbeat_trigger` | Manually trigger a heartbeat check now |
+| `tool_exec <name> [json]` | Execute any registered tool directly (e.g. `tool_exec cron_list {}`) |
 | `restart` | Reboot the device |
 
 ---
