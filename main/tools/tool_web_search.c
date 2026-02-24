@@ -35,6 +35,9 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
             memcpy(sb->data + sb->len, evt->data, evt->data_len);
             sb->len += evt->data_len;
             sb->data[sb->len] = '\0';
+        } else {
+            ESP_LOGW(TAG, "Response too large; dropped %d bytes (buf %zu/%zu)",
+                     evt->data_len, sb->len, sb->cap);
         }
     }
     return ESP_OK;
