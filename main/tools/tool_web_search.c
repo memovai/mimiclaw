@@ -15,7 +15,7 @@ static const char *TAG = "web_search";
 
 static char s_search_key[128] = {0};
 
-#define SEARCH_BUF_SIZE     (16 * 1024)
+#define SEARCH_BUF_SIZE     (64 * 1024)
 #define SEARCH_RESULT_COUNT 5
 
 /* ── Response accumulator ─────────────────────────────────────── */
@@ -254,7 +254,8 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
 
     char path[384];
     snprintf(path, sizeof(path),
-             "/res/v1/web/search?q=%s&count=%d", encoded_query, SEARCH_RESULT_COUNT);
+             "/res/v1/web/search?q=%s&count=%d&result_filter=web", encoded_query,
+             SEARCH_RESULT_COUNT);
 
     /* Allocate response buffer from PSRAM */
     search_buf_t sb = {0};
