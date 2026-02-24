@@ -3,12 +3,12 @@
 #include "proxy/http_proxy.h"
 
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
-#include "esp_crt_bundle.h"
 
 static const char *TAG = "tool_time";
 
@@ -16,6 +16,10 @@ static const char *MONTHS[] = {
     "Jan","Feb","Mar","Apr","May","Jun",
     "Jul","Aug","Sep","Oct","Nov","Dec"
 };
+
+typedef struct {
+    char date_value[64];
+} time_http_ctx_t;
 
 /* Parse "Sat, 01 Feb 2025 10:25:00 GMT" → set system clock, return formatted string */
 static bool parse_and_set_time(const char *date_str, char *out, size_t out_size)
@@ -106,14 +110,38 @@ static esp_err_t fetch_time_via_proxy(char *out, size_t out_size)
     return ESP_OK;
 }
 
-/* Fetch time via direct HTTPS */
+/* Capture Date header in a stable local buffer. */
+static esp_err_t date_header_capture_handler(esp_http_client_event_t *evt)
+{
+    if (evt->event_id != HTTP_EVENT_ON_HEADER || !evt->user_data) {
+        return ESP_OK;
+    }
+
+    if (!evt->header_key || !evt->header_value || strcasecmp(evt->header_key, "Date") != 0) {
+        return ESP_OK;
+    }
+
+    time_http_ctx_t *ctx = (time_http_ctx_t *)evt->user_data;
+    size_t len = strlen(evt->header_value);
+    if (len >= sizeof(ctx->date_value)) {
+        len = sizeof(ctx->date_value) - 1;
+    }
+    memcpy(ctx->date_value, evt->header_value, len);
+    ctx->date_value[len] = '\0';
+
+    return ESP_OK;
+}
+
+/* Fetch time via direct HTTP */
 static esp_err_t fetch_time_direct(char *out, size_t out_size)
 {
+    time_http_ctx_t ctx = {0};
     esp_http_client_config_t config = {
-        .url = "https://api.telegram.org/",
+        .url = "http://captive.apple.com/",
         .method = HTTP_METHOD_HEAD,
         .timeout_ms = 10000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .event_handler = date_header_capture_handler,
+        .user_data = &ctx,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -125,14 +153,11 @@ static esp_err_t fetch_time_direct(char *out, size_t out_size)
         return err;
     }
 
-    /* Get Date header */
-    char *date_ptr = NULL;
-    esp_http_client_get_header(client, "Date", &date_ptr);
     esp_http_client_cleanup(client);
 
-    if (!date_ptr || date_ptr[0] == '\0') return ESP_ERR_NOT_FOUND;
+    if (ctx.date_value[0] == '\0') return ESP_ERR_NOT_FOUND;
 
-    if (!parse_and_set_time(date_ptr, out, out_size)) return ESP_FAIL;
+    if (!parse_and_set_time(ctx.date_value, out, out_size)) return ESP_FAIL;
     return ESP_OK;
 }
 
