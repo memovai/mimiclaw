@@ -17,6 +17,11 @@ static char s_search_key[128] = {0};
 
 #define SEARCH_BUF_SIZE     (64 * 1024)
 #define SEARCH_RESULT_COUNT 5
+#define STR(x) #x
+#define XSTR(x) STR(x)
+
+static const char s_brave_url[] = "https://api.search.brave.com";
+static const char s_path_template[] = "/res/v1/web/search?count=" XSTR(SEARCH_RESULT_COUNT) "&result_filter=web&q=";
 
 /* ── Response accumulator ─────────────────────────────────────── */
 
@@ -250,20 +255,26 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
 
     ESP_LOGI(TAG, "Searching: %s", query->valuestring);
 
-    /* Build URL */
-    char encoded_query[256];
-    url_encode(query->valuestring, encoded_query, sizeof(encoded_query));
-    cJSON_Delete(input);
+    /* Note: queries over 256 characters long are truncated */
+    size_t query_len = strnlen(query->valuestring, 256) * 3 + 3; // worse case URL-encoding expansion
+    char *url = calloc(1, sizeof(s_brave_url) + sizeof(s_path_template) + query_len);
+    if (!url) {
+        cJSON_Delete(input);
+        snprintf(output, output_size, "Error: Out of memory");
+        return ESP_ERR_NO_MEM;
+    }
 
-    char path[384];
-    snprintf(path, sizeof(path),
-             "/res/v1/web/search?q=%s&count=%d&result_filter=web", encoded_query,
-             SEARCH_RESULT_COUNT);
+    /* Build Query */
+    memcpy(url, s_brave_url, sizeof(s_brave_url));
+    memcpy(url + sizeof(s_brave_url) - 1, s_path_template, sizeof(s_path_template));
+    url_encode(query->valuestring, url + sizeof(s_brave_url) + sizeof(s_path_template) - 2, query_len);
+    cJSON_Delete(input);
 
     /* Allocate response buffer from PSRAM */
     search_buf_t sb = {0};
     sb.data = heap_caps_calloc(1, SEARCH_BUF_SIZE, MALLOC_CAP_SPIRAM);
     if (!sb.data) {
+        free(url);
         snprintf(output, output_size, "Error: Out of memory");
         return ESP_ERR_NO_MEM;
     }
@@ -272,12 +283,11 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
     /* Make HTTP request */
     esp_err_t err;
     if (http_proxy_is_enabled()) {
-        err = search_via_proxy(path, &sb);
+        err = search_via_proxy(url + sizeof(s_brave_url) - 1, &sb); // just the path portion
     } else {
-        char url[512];
-        snprintf(url, sizeof(url), "https://api.search.brave.com%s", path);
         err = search_direct(url, &sb);
     }
+    free(url);
 
     if (err != ESP_OK) {
         free(sb.data);
