@@ -58,6 +58,9 @@ textarea:focus{border-color:#555}
 #del-skill-btn{margin-left:auto;background:#5a1f1f;border-color:#8b3333;color:#ffaaaa}
 #del-skill-btn:hover{background:#6b2020}
 #new-skill-btn{width:100%;margin-bottom:6px}
+#chat-bar{display:flex;gap:6px;padding:6px 10px;border-top:1px solid #444;flex-shrink:0}
+#chat-bar input{flex:1;background:#222;color:#ddd;border:1px solid #444;padding:6px 10px;font-family:monospace;font-size:0.83rem;border-radius:3px;outline:none}
+#chat-bar input:focus{border-color:#7ec8e3}
 </style>
 </head>
 <body>
@@ -81,6 +84,10 @@ textarea:focus{border-color:#555}
 </nav>
 <div id="content">
   <div id="log-panel"></div>
+  <div id="chat-bar">
+    <input id="chat-input" type="text" placeholder="Message C6PO&#x2026;" autocomplete="off" spellcheck="false">
+    <button onclick="sendChat()">Send</button>
+  </div>
   <div id="file-panel">
     <div class="toolbar">
       <button onclick="saveFile()">&#x1F4BE; Save</button>
@@ -153,9 +160,7 @@ function connect(){
       var d=JSON.parse(ev.data);
       if(d.type==='monitor') addLog(d.event,'['+d.event+'] '+d.msg);
       else if(d.type==='response'){
-        var p=d.content||'';
-        if(p.length>120) p=p.substring(0,120)+'...';
-        addLog('msg','[\u2192 '+d.chat_id+'] '+p);
+        addLog('msg','[\u2192 '+d.chat_id+'] '+(d.content||''));
       }
     }catch(e){addLog('ws',ev.data)}
   };
@@ -189,6 +194,8 @@ function showTab(tab,btn){
   btn.classList.add('active');
   curTab=tab;
   document.getElementById('log-panel').style.display=tab==='log'?'':'none';
+  document.getElementById('chat-bar').style.display=tab==='log'?'flex':'none';
+  if(tab==='log') setTimeout(function(){document.getElementById('chat-input').focus()},0);
   document.getElementById('file-panel').style.display=(tab!=='log'&&tab!=='skills'&&tab!=='settings')?'flex':'none';
   document.getElementById('skill-panel').style.display=tab==='skills'?'flex':'none';
   document.getElementById('settings-panel').style.display=tab==='settings'?'flex':'none';
@@ -378,6 +385,17 @@ function doReboot(){
   .then(function(){addLog('err','Rebooting \u2014 reconnecting...')})
   .catch(function(){addLog('err','Reboot sent')});
 }
+
+function sendChat(){
+  var inp=document.getElementById('chat-input');
+  var text=inp.value.trim();
+  if(!text) return;
+  if(!ws||ws.readyState!==WebSocket.OPEN){addLog('err','Not connected');return}
+  addLog('task','[you] '+text);
+  ws.send(JSON.stringify({type:'message',content:text}));
+  inp.value='';
+}
+document.getElementById('chat-input').addEventListener('keydown',function(e){if(e.key==='Enter')sendChat()});
 
 connect();
 fetchSysinfo();
