@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_console.h"
 #include "esp_system.h"
+#include "driver/usb_serial_jtag.h"
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -557,6 +558,13 @@ static int cmd_restart(int argc, char **argv)
 
 esp_err_t serial_cli_init(void)
 {
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    if (!usb_serial_jtag_is_connected()) {
+        ESP_LOGI(TAG, "USB host not connected, skipping console REPL");
+        return ESP_OK;
+    }
+#endif
+
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
     repl_config.prompt = "mimi> ";
