@@ -31,7 +31,7 @@ MimiClaw 把一块小小的 ESP32-S3 开发板变成你的私人 AI 助理。插
 
 ![](assets/mimiclaw.png)
 
-你在 Telegram 发一条消息，ESP32-S3 通过 WiFi 收到后送进 Agent 循环 — LLM 思考、调用工具、读取记忆 — 再把回复发回来。同时支持 **Anthropic (Claude)**、**OpenAI (GPT)** 和 **[Avian](https://avian.io)** 三种提供商，运行时可切换。一切都跑在一颗 $5 的芯片上，所有数据存在本地 Flash。
+你在 Telegram 发一条消息，ESP32-S3 通过 WiFi 收到后送进 Agent 循环 — LLM 思考、调用工具、读取记忆 — 再把回复发回来。同时支持 **Anthropic (Claude)**、**OpenAI (GPT)** 和 **[Avian](https://avian.io)** 三种提供商，运行时可切换。一切都跑在一颗 $5 的芯片上，所有数据存储在本地 Flash 中。
 
 ## 快速开始
 
