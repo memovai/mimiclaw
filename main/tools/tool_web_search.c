@@ -176,7 +176,7 @@ static esp_err_t search_via_proxy(const char *path, search_buf_t *sb)
     proxy_conn_t *conn = proxy_conn_open("api.search.brave.com", 443, 15000);
     if (!conn) return ESP_ERR_HTTP_CONNECT;
 
-    char header[512];
+    char header[768];
     int hlen = snprintf(header, sizeof(header),
         "GET %s HTTP/1.1\r\n"
         "Host: api.search.brave.com\r\n"
