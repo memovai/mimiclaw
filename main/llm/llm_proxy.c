@@ -564,6 +564,10 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
+    /* Note: intentionally NOT using provider_is_openai_compat() here.
+     * Only real OpenAI supports max_completion_tokens; Avian's API
+     * (and Anthropic) expect max_tokens despite being OpenAI-compatible
+     * for routing/auth purposes. */
     if (strcmp(s_provider, "openai") == 0) {
         cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
     } else {
