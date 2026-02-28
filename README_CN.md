@@ -113,6 +113,44 @@ xcode-select --install
 
 </details>
 
+<details>
+<summary>PlatformIO 构建（替代方案）</summary>
+
+PlatformIO 提供替代构建系统，支持 VS Code IDE 集成。
+
+**前置条件：**
+
+```bash
+pip install platformio
+```
+
+**构建和烧录：**
+
+```bash
+# 构建固件
+pio run
+
+# 烧录固件到开发板
+pio run -t upload
+
+# 上传 SPIFFS 文件系统（首次烧录或 spiffs_data/ 变更时需要）
+pio run -t uploadfs
+
+# 串口监控
+pio device monitor
+
+# 或使用便捷脚本
+./scripts/build_pio.sh
+```
+
+**注意事项：**
+
+- PlatformIO 使用 ESP-IDF v5.5.x
+- SPIFFS 需要单独上传 `pio run -t uploadfs`（与 ESP-IDF 原生构建不同，原生会自动包含）
+- ESP-IDF 原生构建（`idf.py`）可与 PlatformIO 并存使用
+
+</details>
+
 ### 配置
 
 MimiClaw 使用**两层配置**：`mimi_secrets.h` 提供编译时默认值，串口 CLI 可在运行时覆盖。CLI 设置的值存在 NVS Flash 中，优先级高于编译时值。
