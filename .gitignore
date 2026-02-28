@@ -16,11 +16,6 @@ managed_components/
 .pioenvs/
 .piolibdeps/
 
-# PlatformIO
-.pio/
-.pioenvs/
-.piolibdeps/
-
 # Generated headers
 main/assets/lang_config.h
 main/mmap_generate_emoji.h
