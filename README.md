@@ -116,7 +116,7 @@ xcode-select --install
 <details>
 <summary>Building with PlatformIO</summary>
 
-PlatformIO provides an alternative build system with IDE integration support (VS Code, etc.).
+PlatformIO provides an alternative build system with IDE integration support.
 
 **Prerequisites:**
 
@@ -152,45 +152,7 @@ Or use the helper script:
 ./scripts/build_pio.sh
 ```
 
-> **Note:** Unlike ESP-IDF native build, PlatformIO requires a separate `uploadfs` step for SPIFFS. The `spiffs_data/` directory contents are not included in the firmware image automatically.
-
-</details>
-
-<details>
-<summary>PlatformIO Build (Alternative)</summary>
-
-PlatformIO provides an alternative build system with VS Code IDE integration.
-
-**Prerequisites:**
-
-```bash
-pip install platformio
-```
-
-**Build and Flash:**
-
-```bash
-# Build firmware
-pio run
-
-# Flash firmware to board
-pio run -t upload
-
-# Upload SPIFFS filesystem (required on first flash or when spiffs_data/ changes)
-pio run -t uploadfs
-
-# Serial monitor
-pio device monitor
-
-# Or use the convenience script
-./scripts/build_pio.sh
-```
-
-**Notes:**
-
-- PlatformIO uses ESP-IDF v5.5.2 (platform version ~55.03.36)
-- SPIFFS must be uploaded separately with `pio run -t uploadfs` (unlike ESP-IDF native where it's automatic)
-- ESP-IDF native build (`idf.py`) continues to work alongside PlatformIO
+> **Note:** PlatformIO uses ESP-IDF v5.5.x. Unlike ESP-IDF native build, SPIFFS requires a separate `uploadfs` step. ESP-IDF native build (`idf.py`) continues to work alongside PlatformIO.
 
 </details>
 
