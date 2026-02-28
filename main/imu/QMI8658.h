@@ -1,6 +1,7 @@
 #pragma once
 
 #include "I2C_Driver.h"
+#include "esp_err.h"
 
 //device address
 #define QMI8658_L_SLAVE_ADDRESS                 (0x6B)
@@ -159,3 +160,4 @@ float getGyroY();
 float getGyroZ();
 void getAccelerometer(void);
 void getGyroscope(void);
+esp_err_t QMI8658_Read_Temperature(float *temp_c);

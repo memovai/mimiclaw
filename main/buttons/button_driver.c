@@ -15,6 +15,13 @@ static void Timer_Callback(void *arg){
 
 struct Button BUTTON1;
 PressEvent BOOT_KEY_State;
+static button_event_cb_t s_event_cb = NULL;
+
+void button_set_event_callback(button_event_cb_t cb)
+{
+  s_event_cb = cb;
+}
+
 static uint8_t Read_Button_GPIO_Level(uint8_t button_id)
 {
   if(!button_id)
@@ -25,18 +32,21 @@ static void Button_SINGLE_CLICK_Callback(void* btn){
   struct Button *user_button = (struct Button *)btn;
   if(user_button == &BUTTON1){
     BOOT_KEY_State = SINGLE_CLICK;
+    if (s_event_cb) s_event_cb(SINGLE_CLICK);
   }
 }
 static void Button_DOUBLE_CLICK_Callback(void* btn){
   struct Button *user_button = (struct Button *)btn;
   if(user_button == &BUTTON1){
     BOOT_KEY_State = DOUBLE_CLICK;
+    if (s_event_cb) s_event_cb(DOUBLE_CLICK);
   }
 }
 static void Button_LONG_PRESS_START_Callback(void* btn){
   struct Button *user_button = (struct Button *)btn;
   if(user_button == &BUTTON1){
     BOOT_KEY_State= LONG_PRESS_START;
+    if (s_event_cb) s_event_cb(LONG_PRESS_START);
   }
 }
 void button_Init(void)

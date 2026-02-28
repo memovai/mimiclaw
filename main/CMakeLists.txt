@@ -6,6 +6,8 @@ idf_component_register(
         "imu/I2C_Driver.c"
         "imu/QMI8658.c"
         "imu/imu_manager.c"
+        "sensors/env_sensor.c"
+        "trigger/lick_trigger.c"
         "bus/message_bus.c"
         "wifi/wifi_manager.c"
         "telegram/telegram_bot.c"

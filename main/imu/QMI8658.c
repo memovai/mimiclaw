@@ -285,6 +285,22 @@ void getGyroscope(void)
     Gyro.z = Gyro.z * gyroScales;
 }
 
+esp_err_t QMI8658_Read_Temperature(float *temp_c)
+{
+    if (!temp_c) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t buf[2] = {0};
+    esp_err_t err = I2C_Read(Device_addr, QMI8658_TEMP_L, buf, 2);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    int16_t raw = (int16_t)(((uint16_t)buf[1] << 8) | buf[0]);
+    *temp_c = ((float)raw / 256.0f) + 25.0f;
+    return ESP_OK;
+}
 
 
 

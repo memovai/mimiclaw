@@ -12,5 +12,7 @@
 extern PressEvent BOOT_KEY_State;    
 
 void button_Init(void);
+typedef void (*button_event_cb_t)(PressEvent event);
+void button_set_event_callback(button_event_cb_t cb);
 
 #endif

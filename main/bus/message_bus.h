@@ -3,6 +3,7 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include <stddef.h>
 
 /* Channel identifiers */
 #define MIMI_CHAN_TELEGRAM   "telegram"
@@ -45,3 +46,10 @@ esp_err_t message_bus_push_outbound(const mimi_msg_t *msg);
  * Caller must free msg->content when done.
  */
 esp_err_t message_bus_pop_outbound(mimi_msg_t *msg, uint32_t timeout_ms);
+
+/**
+ * Get the latest non-system source context seen on inbound bus.
+ * Useful for routing device-triggered prompts back to the active chat.
+ */
+esp_err_t message_bus_get_latest_client_context(char *channel, size_t channel_size,
+                                                char *chat_id, size_t chat_id_size);

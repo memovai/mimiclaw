@@ -26,6 +26,7 @@
 #include "buttons/button_driver.h"
 #include "imu/imu_manager.h"
 #include "skills/skill_loader.h"
+#include "trigger/lick_trigger.h"
 
 static const char *TAG = "mimi";
 
@@ -122,6 +123,7 @@ void app_main(void)
 
     /* Initialize subsystems */
     ESP_ERROR_CHECK(message_bus_init());
+    ESP_ERROR_CHECK(lick_trigger_init());
     ESP_ERROR_CHECK(memory_store_init());
     ESP_ERROR_CHECK(skill_loader_init());
     ESP_ERROR_CHECK(session_mgr_init());
