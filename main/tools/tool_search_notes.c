@@ -65,7 +65,12 @@ esp_err_t tool_search_notes_execute(const char *input_json, char *output, size_t
     int word_count = 0;
     char *tok = strtok(qbuf, " ");
     while (tok && word_count < MAX_QUERY_WORDS) {
-        words[word_count++] = tok;
+        /* Deduplicate: skip if this word was already added */
+        bool dup = false;
+        for (int i = 0; i < word_count; i++) {
+            if (strcasecmp(words[i], tok) == 0) { dup = true; break; }
+        }
+        if (!dup) words[word_count++] = tok;
         tok = strtok(NULL, " ");
     }
 
@@ -87,7 +92,7 @@ esp_err_t tool_search_notes_execute(const char *input_json, char *output, size_t
     int result_count = 0;
 
     struct dirent *ent;
-    while ((ent = readdir(dir)) != NULL && result_count < MAX_RESULTS) {
+    while ((ent = readdir(dir)) != NULL) {
         /* SPIFFS stores flat names like "memory/2026-02-15.md" */
         const char *name = ent->d_name;
 
@@ -128,10 +133,23 @@ esp_err_t tool_search_notes_execute(const char *input_json, char *output, size_t
         free(buf);
 
         if (matches > 0) {
-            strncpy(results[result_count].path, full_path, sizeof(results[result_count].path) - 1);
-            results[result_count].path[sizeof(results[result_count].path) - 1] = '\0';
-            results[result_count].matches = matches;
-            result_count++;
+            if (result_count < MAX_RESULTS) {
+                strncpy(results[result_count].path, full_path, sizeof(results[result_count].path) - 1);
+                results[result_count].path[sizeof(results[result_count].path) - 1] = '\0';
+                results[result_count].matches = matches;
+                result_count++;
+            } else {
+                /* Replace the weakest result if this one scores higher */
+                int min_idx = 0;
+                for (int k = 1; k < MAX_RESULTS; k++) {
+                    if (results[k].matches < results[min_idx].matches) min_idx = k;
+                }
+                if (matches > results[min_idx].matches) {
+                    strncpy(results[min_idx].path, full_path, sizeof(results[min_idx].path) - 1);
+                    results[min_idx].path[sizeof(results[min_idx].path) - 1] = '\0';
+                    results[min_idx].matches = matches;
+                }
+            }
         }
     }
     closedir(dir);
@@ -156,14 +174,20 @@ esp_err_t tool_search_notes_execute(const char *input_json, char *output, size_t
     }
 
     size_t off = 0;
-    off += snprintf(output + off, output_size - off,
-                    "Found %d notes matching \"%s\" (%d words):\n\n",
-                    result_count, query, word_count);
+    int written = snprintf(output, output_size,
+                           "Found %d notes matching \"%s\" (%d words):\n\n",
+                           result_count, query, word_count);
+    if (written > 0 && (size_t)written < output_size)
+        off = (size_t)written;
+    else
+        off = output_size > 0 ? output_size - 1 : 0;
 
     for (int i = 0; i < result_count && off < output_size - 1; i++) {
-        off += snprintf(output + off, output_size - off,
-                        "%d. %s (%d/%d words)\n",
-                        i + 1, results[i].path, results[i].matches, word_count);
+        written = snprintf(output + off, output_size - off,
+                           "%d. %s (%d/%d words)\n",
+                           i + 1, results[i].path, results[i].matches, word_count);
+        if (written < 0 || (size_t)written >= output_size - off) break;
+        off += (size_t)written;
     }
 
     ESP_LOGI(TAG, "search_notes: %d matches for \"%s\"", result_count, query);
