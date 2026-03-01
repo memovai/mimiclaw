@@ -5,6 +5,7 @@
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
 #include "tools/tool_gpio.h"
+#include "tools/tool_search_notes.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -132,6 +133,18 @@ esp_err_t tool_registry_init(void)
         .execute = tool_list_dir_execute,
     };
     register_tool(&ld);
+
+    /* Register search_notes */
+    mimi_tool_t sn = {
+        .name = "search_notes",
+        .description = "Search daily notes for keywords. Returns matching filenames ranked by relevance. Use read_file to view full content of results.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Space-separated keywords to search for in daily notes\"}},"
+            "\"required\":[\"query\"]}",
+        .execute = tool_search_notes_execute,
+    };
+    register_tool(&sn);
 
     /* Register cron_add */
     mimi_tool_t ca = {
