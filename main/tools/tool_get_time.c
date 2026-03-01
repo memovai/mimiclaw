@@ -9,8 +9,65 @@
 #include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 
 static const char *TAG = "tool_time";
+
+static char s_timezone[64] = "";
+
+void timezone_init(void)
+{
+    /* Priority: NVS > build-time secret > hardcoded default */
+    bool found = false;
+
+    nvs_handle_t nvs;
+    if (nvs_open(MIMI_NVS_TZ, NVS_READONLY, &nvs) == ESP_OK) {
+        size_t len = sizeof(s_timezone);
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_TZ, s_timezone, &len) == ESP_OK
+            && s_timezone[0]) {
+            found = true;
+        }
+        nvs_close(nvs);
+    }
+
+    if (!found && strlen(MIMI_SECRET_TIMEZONE) > 0) {
+        strncpy(s_timezone, MIMI_SECRET_TIMEZONE, sizeof(s_timezone) - 1);
+        s_timezone[sizeof(s_timezone) - 1] = '\0';
+        found = true;
+    }
+
+    if (!found) {
+        strncpy(s_timezone, MIMI_TIMEZONE, sizeof(s_timezone) - 1);
+        s_timezone[sizeof(s_timezone) - 1] = '\0';
+    }
+
+    setenv("TZ", s_timezone, 1);
+    tzset();
+    ESP_LOGI(TAG, "Timezone set to: %s", s_timezone);
+}
+
+void timezone_set(const char *tz)
+{
+    strncpy(s_timezone, tz, sizeof(s_timezone) - 1);
+    s_timezone[sizeof(s_timezone) - 1] = '\0';
+
+    nvs_handle_t nvs;
+    if (nvs_open(MIMI_NVS_TZ, NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_str(nvs, MIMI_NVS_KEY_TZ, s_timezone);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+
+    setenv("TZ", s_timezone, 1);
+    tzset();
+    ESP_LOGI(TAG, "Timezone updated to: %s", s_timezone);
+}
+
+const char *timezone_get(void)
+{
+    return s_timezone;
+}
 
 static const char *MONTHS[] = {
     "Jan","Feb","Mar","Apr","May","Jun",
@@ -45,7 +102,7 @@ static bool parse_and_set_time(const char *date_str, char *out, size_t out_size)
     time_t t = mktime(&tm);
 
     /* Restore timezone */
-    setenv("TZ", MIMI_TIMEZONE, 1);
+    setenv("TZ", timezone_get(), 1);
     tzset();
 
     if (t < 0) return false;

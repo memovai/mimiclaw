@@ -56,6 +56,9 @@ esp_err_t tool_registry_init(void)
 {
     s_tool_count = 0;
 
+    /* Apply timezone before anything else */
+    timezone_init();
+
     /* Register web_search */
     tool_web_search_init();
 
