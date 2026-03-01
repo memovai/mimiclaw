@@ -46,3 +46,4 @@ nanobot/
 .DS_Store
 Thumbs.db
 references/
+_codeql_detected_source_root

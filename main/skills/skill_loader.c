@@ -54,6 +54,40 @@ static const char *TAG = "skills";
     "## Format\n" \
     "Keep it brief — 5-10 bullet points max. Use the user's preferred language.\n"
 
+#define BUILTIN_ARXIV_SEARCH \
+    "# ArXiv Search\n" \
+    "\n" \
+    "Search for academic papers on ArXiv by keywords using the http_request tool.\n" \
+    "\n" \
+    "## When to use\n" \
+    "When the user asks to find academic papers, research articles, preprints, or scientific publications.\n" \
+    "Also when the user mentions ArXiv or asks about recent research on a topic.\n" \
+    "\n" \
+    "## How to use\n" \
+    "1. Identify the search keywords from the user's query\n" \
+    "2. Build the ArXiv API query URL:\n" \
+    "   - Base URL: `https://export.arxiv.org/api/query`\n" \
+    "   - Add `search_query=` with keywords joined by `+AND+` (URL-encoded spaces as `+`)\n" \
+    "   - Use field prefixes: `all:` (any field), `ti:` (title), `au:` (author), `abs:` (abstract), `cat:` (category)\n" \
+    "   - Add `&start=0&max_results=5` to limit results\n" \
+    "   - Add `&sortBy=submittedDate&sortOrder=descending` for newest first\n" \
+    "3. Use http_request tool with method GET and the constructed URL\n" \
+    "4. Parse the Atom XML response — each `<entry>` contains:\n" \
+    "   - `<title>`: paper title\n" \
+    "   - `<summary>`: abstract\n" \
+    "   - `<author><name>`: author names\n" \
+    "   - `<link>` with `title=\"pdf\"`: PDF link\n" \
+    "   - `<published>`: publication date\n" \
+    "5. Present results in a clear format: title, authors, date, abstract snippet, and link\n" \
+    "\n" \
+    "## Example\n" \
+    "User: \"Find recent papers on large language models\"\n" \
+    "→ http_request url=\"https://export.arxiv.org/api/query?search_query=all:large+AND+all:language+AND+all:models&start=0&max_results=5&sortBy=submittedDate&sortOrder=descending\" method=\"GET\"\n" \
+    "→ Parse the XML response and list papers with title, authors, date, and link\n" \
+    "\n" \
+    "User: \"Search ArXiv for papers by Yann LeCun on deep learning\"\n" \
+    "→ http_request url=\"https://export.arxiv.org/api/query?search_query=au:LeCun+AND+all:deep+learning&start=0&max_results=5&sortBy=submittedDate&sortOrder=descending\" method=\"GET\"\n"
+
 #define BUILTIN_SKILL_CREATOR \
     "# Skill Creator\n" \
     "\n" \
@@ -96,6 +130,7 @@ typedef struct {
 static const builtin_skill_t s_builtins[] = {
     { "weather",        BUILTIN_WEATHER        },
     { "daily-briefing", BUILTIN_DAILY_BRIEFING },
+    { "arxiv-search",   BUILTIN_ARXIV_SEARCH   },
     { "skill-creator",  BUILTIN_SKILL_CREATOR  },
 };
 

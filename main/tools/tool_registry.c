@@ -4,6 +4,7 @@
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
+#include "tools/tool_http_request.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -175,6 +176,23 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* Register http_request */
+    mimi_tool_t hr = {
+        .name = "http_request",
+        .description = "Make HTTP requests to external APIs and websites. Supports GET, POST, PUT, DELETE, PATCH, HEAD methods. Use for API calls, fetching data from URLs, etc.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"url\":{\"type\":\"string\",\"description\":\"HTTP or HTTPS URL to request\"},"
+            "\"method\":{\"type\":\"string\",\"description\":\"HTTP method: GET, POST, PUT, DELETE, PATCH, HEAD (default: GET)\"},"
+            "\"headers\":{\"type\":\"object\",\"description\":\"Optional HTTP headers as key-value pairs\"},"
+            "\"body\":{\"type\":\"string\",\"description\":\"Optional request body (for POST, PUT, PATCH)\"}"
+            "},"
+            "\"required\":[\"url\"]}",
+        .execute = tool_http_request_execute,
+    };
+    register_tool(&hr);
 
     build_tools_json();
 
