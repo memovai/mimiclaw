@@ -187,19 +187,34 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+/** Return true when the active provider is Minimax. */
+static bool provider_is_minimax(void)
+{
+    return strcmp(s_provider, "minimax") == 0;
+}
+
+/** Return the full API URL for the active provider. */
 static const char *llm_api_url(void)
 {
-    return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
+    if (provider_is_openai()) return MIMI_OPENAI_API_URL;
+    if (provider_is_minimax()) return MIMI_MINIMAX_API_URL;
+    return MIMI_LLM_API_URL;
 }
 
+/** Return the HTTP Host header value for the active provider. */
 static const char *llm_api_host(void)
 {
-    return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
+    if (provider_is_openai()) return "api.openai.com";
+    if (provider_is_minimax()) return "api.minimax.io";
+    return "api.anthropic.com";
 }
 
+/** Return the HTTP request path for the active provider. */
 static const char *llm_api_path(void)
 {
-    return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
+    if (provider_is_openai()) return "/v1/chat/completions";
+    if (provider_is_minimax()) return "/anthropic/v1/messages";
+    return "/v1/messages";
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
