@@ -281,6 +281,9 @@ static bool tg_response_is_ok(const char *resp, const char **out_desc)
     return false;
 }
 
+/** Parse a Telegram getUpdates JSON response, enforce owner-only access
+ *  via MIMI_SECRET_TG_OWNER_ID, and forward accepted messages to the
+ *  inbound message bus. */
 static void process_updates(const char *json_str)
 {
     cJSON *root = cJSON_Parse(json_str);
@@ -351,6 +354,14 @@ static void process_updates(const char *json_str)
                 continue;
             }
             seen_msg_insert(msg_key);
+        }
+
+        /* Only allow the owner to interact with the bot */
+        if (MIMI_SECRET_TG_OWNER_ID[0] != '\0' &&
+            strcmp(chat_id_str, MIMI_SECRET_TG_OWNER_ID) != 0) {
+            ESP_LOGW(TAG, "Unauthorized chat %s, rejecting", chat_id_str);
+            telegram_send_message(chat_id_str, "This bot is private. Access denied.");
+            continue;
         }
 
         ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
