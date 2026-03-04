@@ -46,6 +46,9 @@
 #ifndef MIMI_SECRET_TAVILY_KEY
 #define MIMI_SECRET_TAVILY_KEY      ""
 #endif
+#ifndef MIMI_SECRET_ALLOWED_USERS
+#define MIMI_SECRET_ALLOWED_USERS   ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -60,6 +63,7 @@
 #define MIMI_TG_POLL_CORE            0
 #define MIMI_TG_CARD_SHOW_MS         3000
 #define MIMI_TG_CARD_BODY_SCALE      3
+#define MIMI_TG_MAX_ALLOWED_USERS    8
 
 /* Feishu Bot */
 #define MIMI_FEISHU_MAX_MSG_LEN          4096
@@ -153,6 +157,7 @@
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"
 #define MIMI_NVS_KEY_PROXY_TYPE      "proxy_type"
+#define MIMI_NVS_KEY_ALLOWED_USERS   "allowed_users"
 
 /* WiFi Onboarding (Captive Portal) */
 #define MIMI_ONBOARD_AP_PREFIX    "MimiClaw-"

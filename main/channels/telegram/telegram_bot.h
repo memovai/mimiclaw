@@ -25,3 +25,9 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text);
  */
 esp_err_t telegram_set_token(const char *token);
 
+/**
+ * Set allowed Telegram user IDs (comma-separated string).
+ * Positive IDs filter by sender, negative IDs allow entire group chats.
+ * Saves to NVS and applies immediately. Empty string = allow all.
+ */
+esp_err_t telegram_set_allowed_users(const char *user_ids);
