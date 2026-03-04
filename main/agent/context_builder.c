@@ -44,6 +44,7 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "- write_file: Write/overwrite a file.\n"
         "- edit_file: Find-and-replace edit a file.\n"
         "- list_dir: List files, optionally filter by prefix.\n"
+        "- search_notes: Search daily notes for keywords. Returns matching filenames ranked by relevance. Use read_file to view full content.\n"
         "- cron_add: Schedule a recurring or one-shot task. The message will trigger an agent turn when the job fires.\n"
         "- cron_list: List all scheduled cron jobs.\n"
         "- cron_remove: Remove a scheduled cron job by ID.\n"
