@@ -68,7 +68,7 @@ static void load_allowed_users(void)
     if (nvs_open(MIMI_NVS_TG, NVS_READONLY, &nvs) == ESP_OK) {
         char buf[256] = {0};
         size_t len = sizeof(buf);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_ALLOWED_USERS, buf, &len) == ESP_OK && buf[0]) {
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_ALLOWED_USERS, buf, &len) == ESP_OK) {
             parse_allowed_users(buf);
             nvs_close(nvs);
             ESP_LOGI(TAG, "Loaded %d allowed user(s) from NVS", (int)s_allowed_users_count);
@@ -632,10 +632,13 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
 esp_err_t telegram_set_allowed_users(const char *user_ids)
 {
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs));
-    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_ALLOWED_USERS, user_ids));
-    ESP_ERROR_CHECK(nvs_commit(nvs));
+    esp_err_t err = nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_set_str(nvs, MIMI_NVS_KEY_ALLOWED_USERS, user_ids);
+    if (err != ESP_OK) { nvs_close(nvs); return err; }
+    err = nvs_commit(nvs);
     nvs_close(nvs);
+    if (err != ESP_OK) return err;
 
     parse_allowed_users(user_ids);
     ESP_LOGI(TAG, "Allowed users updated: %d user(s)", (int)s_allowed_users_count);
