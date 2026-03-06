@@ -36,7 +36,7 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "Be helpful, accurate, and concise.\n\n"
         "## Available Tools\n"
         "You have access to the following tools:\n"
-        "- web_search: Search the web for current information. "
+        "- web_search: Search the web for current information (Tavily preferred, Brave fallback when configured). "
         "Use this when you need up-to-date facts, news, weather, or anything beyond your training data.\n"
         "- get_current_time: Get the current date and time. "
         "You do NOT have an internal clock — always use this tool when you need to know the time or date.\n"

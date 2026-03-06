@@ -130,6 +130,7 @@ Edit `main/mimi_secrets.h`:
 #define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
 #define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" or "openai"
 #define MIMI_SECRET_SEARCH_KEY      ""              // optional: Brave Search API key
+#define MIMI_SECRET_TAVILY_KEY      ""              // optional: Tavily API key (preferred)
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"
 ```
@@ -173,6 +174,7 @@ mimi> set_model gpt-4o             # change LLM model
 mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy
 mimi> set_search_key BSA...        # set Brave Search API key
+mimi> set_tavily_key tvly-...      # set Tavily API key (preferred)
 mimi> config_show                  # show all config (masked)
 mimi> config_reset                 # clear NVS, revert to build-time defaults
 ```
@@ -252,13 +254,13 @@ MimiClaw supports tool calling for both Anthropic and OpenAI — the LLM can cal
 
 | Tool | Description |
 |------|-------------|
-| `web_search` | Search the web via Brave Search API for current information |
+| `web_search` | Search the web via Tavily (preferred) or Brave for current information |
 | `get_current_time` | Fetch current date/time via HTTP and set the system clock |
 | `cron_add` | Schedule a recurring or one-shot task (the LLM creates cron jobs on its own) |
 | `cron_list` | List all scheduled cron jobs |
 | `cron_remove` | Remove a cron job by ID |
 
-To enable web search, set a [Brave Search API key](https://brave.com/search/api/) via `MIMI_SECRET_SEARCH_KEY` in `mimi_secrets.h`.
+To enable web search, set a [Tavily API key](https://app.tavily.com/home) via `MIMI_SECRET_TAVILY_KEY` (preferred), or a [Brave Search API key](https://brave.com/search/api/) via `MIMI_SECRET_SEARCH_KEY` in `mimi_secrets.h`.
 
 ## Cron Tasks
 

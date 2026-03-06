@@ -60,7 +60,7 @@ esp_err_t tool_registry_init(void)
 
     mimi_tool_t ws = {
         .name = "web_search",
-        .description = "Search the web for current information. Use this when you need up-to-date facts, news, weather, or anything beyond your training data.",
+        .description = "Search the web for current information via Tavily (preferred) or Brave when configured.",
         .input_schema_json =
             "{\"type\":\"object\","
             "\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The search query\"}},"

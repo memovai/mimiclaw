@@ -130,6 +130,7 @@ cp main/mimi_secrets.h.example main/mimi_secrets.h
 #define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
 #define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" または "openai"
 #define MIMI_SECRET_SEARCH_KEY      ""              // 任意：Brave Search APIキー
+#define MIMI_SECRET_TAVILY_KEY      ""              // 任意：Tavily APIキー（優先）
 #define MIMI_SECRET_PROXY_HOST      ""              // 任意：例 "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // 任意：例 "7897"
 ```
@@ -173,6 +174,7 @@ mimi> set_model gpt-4o             # LLMモデルを変更
 mimi> set_proxy 127.0.0.1 7897    # HTTPプロキシを設定
 mimi> clear_proxy                  # プロキシを削除
 mimi> set_search_key BSA...        # Brave Search APIキーを設定
+mimi> set_tavily_key tvly-...      # Tavily APIキーを設定（優先）
 mimi> config_show                  # 全設定を表示（マスク付き）
 mimi> config_reset                 # NVSをクリア、ビルド時デフォルトに戻す
 ```
@@ -252,13 +254,13 @@ MimiClawはAnthropicとOpenAI両方のツール呼び出しをサポート — L
 
 | ツール | 説明 |
 |--------|------|
-| `web_search` | Brave Search APIでウェブ検索、最新情報を取得 |
+| `web_search` | Tavily（優先）またはBraveでウェブ検索し、最新情報を取得 |
 | `get_current_time` | HTTP経由で現在の日時を取得し、システムクロックを設定 |
 | `cron_add` | 定期または単発タスクをスケジュール（LLMが自律的にcronジョブを作成） |
 | `cron_list` | スケジュール済みのcronジョブを一覧表示 |
 | `cron_remove` | IDでcronジョブを削除 |
 
-ウェブ検索を有効にするには、`mimi_secrets.h`で[Brave Search APIキー](https://brave.com/search/api/)（`MIMI_SECRET_SEARCH_KEY`）を設定してください。
+ウェブ検索を有効にするには、`mimi_secrets.h`で[Tavily APIキー](https://app.tavily.com/home)（優先、`MIMI_SECRET_TAVILY_KEY`）または[Brave Search APIキー](https://brave.com/search/api/)（`MIMI_SECRET_SEARCH_KEY`）を設定してください。
 
 ## Cronタスク
 
