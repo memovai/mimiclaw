@@ -104,6 +104,61 @@ bool http_proxy_is_enabled(void)
     return s_proxy_host[0] != '\0' && s_proxy_port != 0;
 }
 
+/* ── Raw tunnels (no TLS) ────────────────────────────────────── */
+
+static int open_connect_tunnel(const char *host, int port, int timeout_ms);
+static int open_socks5_tunnel(const char *host, int port, int timeout_ms);
+
+int proxy_tunnel_open(const char *host, int port, int timeout_ms)
+{
+    if (!http_proxy_is_enabled()) {
+        ESP_LOGE(TAG, "proxy_tunnel_open called but no proxy configured");
+        return -1;
+    }
+
+    if (!host || !host[0] || port <= 0 || port > 65535) {
+        ESP_LOGE(TAG, "proxy_tunnel_open invalid target");
+        return -1;
+    }
+
+    if (strcmp(s_proxy_type, "socks5") == 0) {
+        return open_socks5_tunnel(host, port, timeout_ms);
+    }
+    return open_connect_tunnel(host, port, timeout_ms);
+}
+
+int proxy_tunnel_write(int sock, const char *data, int len)
+{
+    if (sock < 0 || !data || len <= 0) return -1;
+
+    int written = 0;
+    while (written < len) {
+        int n = send(sock, data + written, len - written, 0);
+        if (n <= 0) return -1;
+        written += n;
+    }
+    return written;
+}
+
+int proxy_tunnel_read(int sock, char *buf, int len, int timeout_ms)
+{
+    if (sock < 0 || !buf || len <= 0) return -1;
+
+    struct timeval tv = { .tv_sec = timeout_ms / 1000, .tv_usec = (timeout_ms % 1000) * 1000 };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    int n = recv(sock, buf, len, 0);
+    if (n < 0) return -1;
+    return n;
+}
+
+void proxy_tunnel_close(int sock)
+{
+    if (sock >= 0) {
+        close(sock);
+    }
+}
+
 /* ── Proxied TLS connection ───────────────────────────────────── */
 
 struct proxy_conn {

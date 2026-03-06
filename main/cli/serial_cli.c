@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <dirent.h>
 #include "esp_log.h"
 #include "esp_console.h"
@@ -167,9 +168,51 @@ static int cmd_set_model_provider(int argc, char **argv)
         arg_print_errors(stderr, provider_args.end, argv[0]);
         return 1;
     }
-    llm_set_provider(provider_args.provider->sval[0]);
-    printf("Model provider set.\n");
-    return 0;
+    esp_err_t err = llm_set_provider(provider_args.provider->sval[0]);
+    if (err == ESP_OK) {
+        printf("Model provider set.\n");
+        return 0;
+    }
+    printf("Failed to set provider: %s\n", esp_err_to_name(err));
+    return 1;
+}
+
+/* --- set_llm_url command --- */
+static struct {
+    struct arg_str *url;
+    struct arg_end *end;
+} llm_url_args;
+
+static int cmd_set_llm_url(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&llm_url_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, llm_url_args.end, argv[0]);
+        return 1;
+    }
+
+    esp_err_t err = llm_set_api_url(llm_url_args.url->sval[0]);
+    if (err == ESP_OK) {
+        printf("LLM URL saved.\n");
+        return 0;
+    }
+    printf("Failed to set LLM URL: %s\n", esp_err_to_name(err));
+    return 1;
+}
+
+/* --- clear_llm_url command --- */
+static int cmd_clear_llm_url(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    esp_err_t err = llm_clear_api_url();
+    if (err == ESP_OK) {
+        printf("LLM URL override cleared.\n");
+        return 0;
+    }
+    printf("Failed to clear LLM URL: %s\n", esp_err_to_name(err));
+    return 1;
 }
 
 /* --- memory_read command --- */
@@ -540,7 +583,7 @@ static int cmd_skill_search(int argc, char **argv)
 static void print_config(const char *label, const char *ns, const char *key,
                          const char *build_val, bool mask)
 {
-    char nvs_val[128] = {0};
+    char nvs_val[384] = {0};
     const char *source = "not set";
     const char *display = "(empty)";
 
@@ -568,6 +611,68 @@ static void print_config(const char *label, const char *ns, const char *key,
     }
 }
 
+static void print_config_u16(const char *label, const char *ns, const char *key,
+                             const char *build_val_str)
+{
+    uint16_t nvs_val = 0;
+    bool has_val = false;
+    const char *source = "not set";
+
+    nvs_handle_t nvs;
+    if (nvs_open(ns, NVS_READONLY, &nvs) == ESP_OK) {
+        if (nvs_get_u16(nvs, key, &nvs_val) == ESP_OK && nvs_val != 0) {
+            has_val = true;
+            source = "NVS";
+        }
+        nvs_close(nvs);
+    }
+
+    if (!has_val && build_val_str && build_val_str[0] != '\0') {
+        int v = atoi(build_val_str);
+        if (v > 0 && v <= 65535) {
+            nvs_val = (uint16_t)v;
+            has_val = true;
+            source = "build";
+        }
+    }
+
+    if (has_val) {
+        printf("  %-14s: %u  [%s]\n", label, (unsigned)nvs_val, source);
+    } else {
+        printf("  %-14s: (empty)  [%s]\n", label, source);
+    }
+}
+
+static void print_llm_url(void)
+{
+    const char *source = "provider";
+    const char *url = llm_get_api_url();
+
+    nvs_handle_t nvs;
+    if (nvs_open(MIMI_NVS_LLM, NVS_READONLY, &nvs) == ESP_OK) {
+        char tmp[384] = {0};
+        size_t len = sizeof(tmp);
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_API_URL, tmp, &len) == ESP_OK && tmp[0]) {
+            source = "NVS";
+        }
+        nvs_close(nvs);
+    }
+
+    if (strcmp(source, "provider") == 0 && MIMI_SECRET_LLM_API_URL[0] != '\0') {
+        source = "build";
+    }
+
+    if (!url || url[0] == '\0') {
+        url = "(empty)";
+    }
+
+    if (llm_api_url_is_valid()) {
+        printf("  %-14s: %s  [%s]\n", "LLM URL", url, source);
+    } else {
+        printf("  %-14s: %s  [%s, invalid]\n", "LLM URL", url, source);
+    }
+}
+
 static int cmd_config_show(int argc, char **argv)
 {
     printf("=== Current Configuration ===\n");
@@ -575,10 +680,11 @@ static int cmd_config_show(int argc, char **argv)
     print_config("WiFi Pass",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_PASS,     MIMI_SECRET_WIFI_PASS,  true);
     print_config("TG Token",   MIMI_NVS_TG,     MIMI_NVS_KEY_TG_TOKEN, MIMI_SECRET_TG_TOKEN,   true);
     print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_API_KEY,    true);
+    print_llm_url();
     print_config("Model",      MIMI_NVS_LLM,    MIMI_NVS_KEY_MODEL,    MIMI_SECRET_MODEL,      false);
     print_config("Provider",   MIMI_NVS_LLM,    MIMI_NVS_KEY_PROVIDER, MIMI_SECRET_MODEL_PROVIDER, false);
     print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
-    print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
+    print_config_u16("Proxy Port", MIMI_NVS_PROXY, MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
     print_config("Tavily Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_TAVILY_KEY, MIMI_SECRET_TAVILY_KEY, true);
     printf("=============================\n");
@@ -901,7 +1007,7 @@ esp_err_t serial_cli_init(void)
     esp_console_cmd_register(&model_cmd);
 
     /* set_model_provider */
-    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai)");
+    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai|openai_compat)");
     provider_args.end = arg_end(1);
     esp_console_cmd_t provider_cmd = {
         .command = "set_model_provider",
@@ -910,6 +1016,25 @@ esp_err_t serial_cli_init(void)
         .argtable = &provider_args,
     };
     esp_console_cmd_register(&provider_cmd);
+
+    /* set_llm_url */
+    llm_url_args.url = arg_str1(NULL, NULL, "<url>", "LLM endpoint URL (http[s]://host[:port]/path)");
+    llm_url_args.end = arg_end(1);
+    esp_console_cmd_t llm_url_cmd = {
+        .command = "set_llm_url",
+        .help = "Set LLM endpoint URL override (e.g. set_llm_url http://192.168.1.10:8000/v1/chat/completions)",
+        .func = &cmd_set_llm_url,
+        .argtable = &llm_url_args,
+    };
+    esp_console_cmd_register(&llm_url_cmd);
+
+    /* clear_llm_url */
+    esp_console_cmd_t llm_url_clear_cmd = {
+        .command = "clear_llm_url",
+        .help = "Clear LLM endpoint URL override (revert to provider default)",
+        .func = &cmd_clear_llm_url,
+    };
+    esp_console_cmd_register(&llm_url_clear_cmd);
 
     /* skill_list */
     esp_console_cmd_t skill_list_cmd = {
