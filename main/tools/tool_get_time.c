@@ -47,8 +47,17 @@ void timezone_init(void)
     ESP_LOGI(TAG, "Timezone set to: %s", s_timezone);
 }
 
-void timezone_set(const char *tz)
+esp_err_t timezone_set(const char *tz)
 {
+    if (!tz || !tz[0]) {
+        ESP_LOGE(TAG, "Timezone string must not be empty");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (strlen(tz) >= sizeof(s_timezone)) {
+        ESP_LOGE(TAG, "Timezone string too long (max %d chars)", (int)sizeof(s_timezone) - 1);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     strncpy(s_timezone, tz, sizeof(s_timezone) - 1);
     s_timezone[sizeof(s_timezone) - 1] = '\0';
 
@@ -62,6 +71,7 @@ void timezone_set(const char *tz)
     setenv("TZ", s_timezone, 1);
     tzset();
     ESP_LOGI(TAG, "Timezone updated to: %s", s_timezone);
+    return ESP_OK;
 }
 
 const char *timezone_get(void)

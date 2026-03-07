@@ -334,7 +334,11 @@ static int cmd_set_tz(int argc, char **argv)
         arg_print_errors(stderr, tz_args.end, argv[0]);
         return 1;
     }
-    timezone_set(tz_args.tz->sval[0]);
+    esp_err_t err = timezone_set(tz_args.tz->sval[0]);
+    if (err != ESP_OK) {
+        printf("Error: invalid timezone string (%s)\n", esp_err_to_name(err));
+        return 1;
+    }
     printf("Timezone set.\n");
     return 0;
 }
@@ -586,7 +590,7 @@ static int cmd_config_show(int argc, char **argv)
     print_config_u16("Proxy Port", MIMI_NVS_PROXY, MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
     print_config("Tavily Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_TAVILY_KEY, MIMI_SECRET_TAVILY_KEY, true);
-    print_config("Timezone",   MIMI_NVS_TZ,     MIMI_NVS_KEY_TZ,      MIMI_SECRET_TIMEZONE,   false);
+    printf("  %-14s: %s\n", "Timezone", timezone_get());
     printf("=============================\n");
     return 0;
 }
