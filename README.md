@@ -129,6 +129,7 @@ Edit `main/mimi_secrets.h`:
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 #define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
 #define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" or "openai"
+#define MIMI_SECRET_LLM_BASE_URL    ""              // optional: OpenAI-compatible base URL
 #define MIMI_SECRET_SEARCH_KEY      ""              // optional: Brave Search API key
 #define MIMI_SECRET_TAVILY_KEY      ""              // optional: Tavily API key (preferred)
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
@@ -166,11 +167,12 @@ Connect via serial to configure or debug. **Config commands** let you change set
 **Runtime config** (saved to NVS, overrides build-time defaults):
 
 ```
-mimi> wifi_set MySSID MyPassword   # change WiFi network
+mimi> set_wifi MySSID MyPassword   # change WiFi network
 mimi> set_tg_token 123456:ABC...   # change Telegram bot token
 mimi> set_api_key sk-ant-api03-... # change API key (Anthropic or OpenAI)
 mimi> set_model_provider openai    # switch provider (anthropic|openai)
 mimi> set_model gpt-4o             # change LLM model
+mimi> set_base_url https://coding.dashscope.aliyuncs.com/v1  # optional: OpenAI-compatible base URL
 mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy
 mimi> set_search_key BSA...        # set Brave Search API key
