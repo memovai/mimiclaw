@@ -5,6 +5,7 @@ idf_component_register(
         "wifi/wifi_manager.c"
         "channels/telegram/telegram_bot.c"
         "channels/feishu/feishu_bot.c"
+        "channels/imessage/imessage_bot.c"
         "llm/llm_proxy.c"
         "agent/agent_loop.c"
         "agent/context_builder.c"
@@ -26,5 +27,5 @@ idf_component_register(
     REQUIRES
         nvs_flash esp_wifi esp_netif esp_http_client esp_http_server
         esp_https_ota esp_event json spiffs console vfs app_update esp-tls
-        esp_timer esp_websocket_client
+        esp_timer esp_websocket_client mbedtls
 )
