@@ -128,6 +128,7 @@ cp main/mimi_secrets.h.example main/mimi_secrets.h
 #define MIMI_SECRET_WIFI_PASS       "你的WiFi密码"
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 #define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
+#define MIMI_SECRET_LLM_API_URL     ""              // 可选：完整URL（支持 http/https + 自定义端口）
 #define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" 或 "openai"
 #define MIMI_SECRET_SEARCH_KEY      ""              // 可选：Brave Search API key
 #define MIMI_SECRET_TAVILY_KEY      ""              // 可选：Tavily API key（优先）

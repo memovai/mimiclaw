@@ -128,6 +128,7 @@ cp main/mimi_secrets.h.example main/mimi_secrets.h
 #define MIMI_SECRET_WIFI_PASS       "WiFiパスワード"
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 #define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
+#define MIMI_SECRET_LLM_API_URL     ""              // 任意：完全なURL（http/https + カスタムポートをサポート）
 #define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" または "openai"
 #define MIMI_SECRET_SEARCH_KEY      ""              // 任意：Brave Search APIキー
 #define MIMI_SECRET_TAVILY_KEY      ""              // 任意：Tavily APIキー（優先）
