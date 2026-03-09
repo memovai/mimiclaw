@@ -292,6 +292,7 @@ MimiClawにはcronスケジューラが内蔵されており、AIが自律的に
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — システム設計、モジュール構成、タスクレイアウト、メモリバジェット、プロトコル、Flashパーティション
 - **[docs/TODO.md](docs/TODO.md)** — 機能ギャップとロードマップ
+- **[docs/im-integration/](docs/im-integration/README.md)** — IMチャネル統合ガイド（Feishuなど）
 
 ## 貢献
 
@@ -315,4 +316,10 @@ MIT
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=memovai/mimiclaw&type=Date)](https://star-history.com/#memovai/mimiclaw&Date)
+<a href="https://www.star-history.com/?repos=memovai%2Fmimiclaw&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=memovai/mimiclaw&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=memovai/mimiclaw&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=memovai/mimiclaw&type=date&legend=top-left" />
+ </picture>
+</a>

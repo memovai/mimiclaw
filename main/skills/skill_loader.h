@@ -5,7 +5,7 @@
 
 /**
  * Initialize skills system.
- * Installs built-in skill files to SPIFFS if they don't already exist.
+ * Scans SPIFFS for available skill markdown files.
  */
 esp_err_t skill_loader_init(void);
 
