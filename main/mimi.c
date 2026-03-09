@@ -61,46 +61,73 @@ static esp_err_t init_spiffs(void)
 
     return ESP_OK;
 }
-
+static void voice_speak_task(void *arg)
+{
+    char *text = (char *)arg;
+    if (text) {
+        esp_err_t err = voice_channel_speak_text(text);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Voice playback failed: %s", esp_err_to_name(err));
+        }
+        free(text);
+    }
+    vTaskDelete(NULL);
+}
 /* Outbound dispatch task: reads from outbound queue and routes to channels */
 static void outbound_dispatch_task(void *arg)
 {
-    ESP_LOGI(TAG, "Outbound dispatch started");
+    (void)arg;
+    ESP_LOGI(TAG, "Outbound dispatch started on core %d", xPortGetCoreID());
 
     while (1) {
-        mimi_msg_t msg;
-        if (message_bus_pop_outbound(&msg, UINT32_MAX) != ESP_OK) continue;
+        mimi_msg_t msg = {0};
+        if (message_bus_pop_outbound(&msg, UINT32_MAX) != ESP_OK) {
+            continue;
+        }
 
-        ESP_LOGI(TAG, "Dispatching response to %s:%s", msg.channel, msg.chat_id);
+        ESP_LOGI(TAG, "Dispatching response to %s:%s",
+                 msg.channel[0] ? msg.channel : "(unknown)",
+                 msg.chat_id[0] ? msg.chat_id : "(empty)");
+
+        if (!msg.content || !msg.content[0]) {
+            free(msg.content);
+            continue;
+        }
 
         if (strcmp(msg.channel, MIMI_CHAN_TELEGRAM) == 0) {
-            esp_err_t send_err = telegram_send_message(msg.chat_id, msg.content);
-            if (send_err != ESP_OK) {
-                ESP_LOGE(TAG, "Telegram send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
-            } else {
-                ESP_LOGI(TAG, "Telegram send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
-            }
+            telegram_send_message(msg.chat_id, msg.content);
+
         } else if (strcmp(msg.channel, MIMI_CHAN_FEISHU) == 0) {
-            esp_err_t send_err = feishu_send_message(msg.chat_id, msg.content);
-            if (send_err != ESP_OK) {
-                ESP_LOGE(TAG, "Feishu send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
-            } else {
-                ESP_LOGI(TAG, "Feishu send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
-            }
+            feishu_send_message(msg.chat_id, msg.content);
+
         } else if (strcmp(msg.channel, MIMI_CHAN_WEBSOCKET) == 0) {
-            esp_err_t ws_err = ws_server_send(msg.chat_id, msg.content);
-            if (ws_err != ESP_OK) {
-                ESP_LOGW(TAG, "WS send failed for %s: %s", msg.chat_id, esp_err_to_name(ws_err));
-            }
+            ws_server_send(msg.chat_id, msg.content);
+
         } else if (strcmp(msg.channel, MIMI_CHAN_VOICE) == 0) {
-            esp_err_t voice_err = voice_channel_speak_text(msg.content);
-            if (voice_err != ESP_OK) {
-                ESP_LOGW(TAG, "Voice playback failed: %s", esp_err_to_name(voice_err));
+            char *copy = strdup(msg.content);
+            if (!copy) {
+                ESP_LOGW(TAG, "No memory for voice speak task");
+            } else {
+                BaseType_t ok = xTaskCreatePinnedToCore(
+                    voice_speak_task,
+                    "voice_speak",
+                    12 * 1024,
+                    copy,
+                    5,
+                    NULL,
+                    0
+                );
+                if (ok != pdPASS) {
+                    ESP_LOGW(TAG, "Failed to create voice_speak task");
+                    free(copy);
+                }
             }
-        } else if (strcmp(msg.channel, MIMI_CHAN_SYSTEM) == 0) {
-            ESP_LOGI(TAG, "System message [%s]: %.128s", msg.chat_id, msg.content);
+
+        } else if (strcmp(msg.channel, MIMI_CHAN_CLI) == 0) {
+            printf("\n%s\n", msg.content);
+
         } else {
-            ESP_LOGW(TAG, "Unknown channel: %s", msg.channel);
+            ESP_LOGW(TAG, "Unknown outbound channel: %s", msg.channel);
         }
 
         free(msg.content);

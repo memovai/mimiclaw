@@ -78,7 +78,7 @@
 #define MIMI_QWEN_STT_URL           "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 #define MIMI_QWEN_STT_MODEL         "qwen3-asr-flash"
 #define MIMI_QWEN_TTS_URL           "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-#define MIMI_QWEN_TTS_MODEL         "qwen-tts-latest"
+#define MIMI_QWEN_TTS_MODEL         "qwen3-tts-flash"
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10

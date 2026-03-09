@@ -218,7 +218,7 @@ static void agent_loop_task(void *arg)
         while (iteration < MIMI_AGENT_MAX_TOOL_ITER) {
             /* Send "working" indicator before each API call */
 #if MIMI_AGENT_SEND_WORKING_STATUS
-            if (!sent_working_status && strcmp(msg.channel, MIMI_CHAN_SYSTEM) != 0) {
+            if (!sent_working_status && strcmp(msg.channel, MIMI_CHAN_SYSTEM) != 0 && strcmp(msg.channel, MIMI_CHAN_VOICE) != 0) {
                 mimi_msg_t status = {0};
                 strncpy(status.channel, msg.channel, sizeof(status.channel) - 1);
                 strncpy(status.chat_id, msg.chat_id, sizeof(status.chat_id) - 1);
