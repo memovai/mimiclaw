@@ -172,13 +172,23 @@ static void agent_loop_task(void *arg)
 {
     ESP_LOGI(TAG, "Agent loop started on core %d", xPortGetCoreID());
 
-    /* Allocate large buffers from PSRAM */
+    /* Allocate large buffers from PSRAM, fallback to internal RAM */
     char *system_prompt = heap_caps_calloc(1, MIMI_CONTEXT_BUF_SIZE, MALLOC_CAP_SPIRAM);
     char *history_json = heap_caps_calloc(1, MIMI_LLM_STREAM_BUF_SIZE, MALLOC_CAP_SPIRAM);
     char *tool_output = heap_caps_calloc(1, TOOL_OUTPUT_SIZE, MALLOC_CAP_SPIRAM);
 
+    if (!system_prompt) {
+        system_prompt = heap_caps_calloc(1, MIMI_CONTEXT_BUF_SIZE, MALLOC_CAP_8BIT);
+    }
+    if (!history_json) {
+        history_json = heap_caps_calloc(1, MIMI_LLM_STREAM_BUF_SIZE, MALLOC_CAP_8BIT);
+    }
+    if (!tool_output) {
+        tool_output = heap_caps_calloc(1, TOOL_OUTPUT_SIZE, MALLOC_CAP_8BIT);
+    }
+
     if (!system_prompt || !history_json || !tool_output) {
-        ESP_LOGE(TAG, "Failed to allocate PSRAM buffers");
+        ESP_LOGE(TAG, "Failed to allocate agent buffers");
         vTaskDelete(NULL);
         return;
     }

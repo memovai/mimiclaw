@@ -3,7 +3,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
-#include "esp_crt_bundle.h"
+#include "compat/mbedtls_compat.h"
 #include "esp_https_ota.h"
 
 static const char *TAG = "ota";
@@ -16,7 +16,7 @@ esp_err_t ota_update_from_url(const char *url)
         .url = url,
         .timeout_ms = 120000,
         .buffer_size = 4096,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
     };
 
     esp_https_ota_config_t ota_config = {

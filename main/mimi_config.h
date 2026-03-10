@@ -104,6 +104,7 @@
 #define MIMI_SPIFFS_CONFIG_DIR       MIMI_SPIFFS_BASE "/config"
 #define MIMI_SPIFFS_MEMORY_DIR       MIMI_SPIFFS_BASE "/memory"
 #define MIMI_SPIFFS_SESSION_DIR      MIMI_SPIFFS_BASE "/sessions"
+#define MIMI_SPIFFS_MPY_DIR          MIMI_SPIFFS_BASE "/mpy"
 #define MIMI_MEMORY_FILE             MIMI_SPIFFS_MEMORY_DIR "/MEMORY.md"
 #define MIMI_SOUL_FILE               MIMI_SPIFFS_CONFIG_DIR "/SOUL.md"
 #define MIMI_USER_FILE               MIMI_SPIFFS_CONFIG_DIR "/USER.md"
@@ -119,6 +120,12 @@
 
 /* Skills */
 #define MIMI_SKILLS_PREFIX           MIMI_SPIFFS_BASE "/skills/"
+
+/* MicroPython */
+#define MIMI_MPY_HEAP_SIZE           (256 * 1024)
+#define MIMI_MPY_TASK_STACK          (20 * 1024)
+#define MIMI_MPY_TASK_PRIO           4
+#define MIMI_MPY_TASK_CORE           1
 
 /* WebSocket Gateway */
 #define MIMI_WS_PORT                 18789

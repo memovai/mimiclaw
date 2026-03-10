@@ -3,9 +3,11 @@
 
 #include <string.h>
 #include <inttypes.h>
+#include <time.h>
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 
@@ -15,6 +17,39 @@ static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_count = 0;
 static char s_ip_str[16] = "0.0.0.0";
 static bool s_connected = false;
+static bool s_sntp_started = false;
+
+static void sntp_sync_task(void *arg)
+{
+    (void)arg;
+    if (!s_sntp_started) {
+        sntp_setoperatingmode(SNTP_OPMODE_POLL);
+        sntp_setservername(0, "pool.ntp.org");
+        sntp_setservername(1, "time.nist.gov");
+        sntp_init();
+        s_sntp_started = true;
+    }
+
+    time_t now = 0;
+    struct tm timeinfo = {0};
+    int retry = 0;
+    const int retry_max = 10;
+    while (retry < retry_max) {
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        if (timeinfo.tm_year >= (2020 - 1900)) {
+            ESP_LOGI(TAG, "Time synced: %04d-%02d-%02d %02d:%02d:%02d",
+                     timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                     timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+            vTaskDelete(NULL);
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        retry++;
+    }
+    ESP_LOGW(TAG, "SNTP sync timeout; TLS may fail until time is set");
+    vTaskDelete(NULL);
+}
 
 static const char *wifi_reason_to_str(wifi_err_reason_t reason)
 {
@@ -67,6 +102,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         s_connected = true;
 
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+
+        if (!s_sntp_started) {
+            xTaskCreate(sntp_sync_task, "sntp_sync", 4096, NULL, 5, NULL);
+        }
     }
 }
 

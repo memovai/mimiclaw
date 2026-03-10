@@ -11,7 +11,7 @@
 #include "esp_log.h"
 #include "nvs.h"
 #include "esp_tls.h"
-#include "esp_crt_bundle.h"
+#include "compat/mbedtls_compat.h"
 
 static const char *TAG = "proxy";
 
@@ -291,7 +291,7 @@ proxy_conn_t *proxy_conn_open(const char *host, int port, int timeout_ms)
     esp_tls_set_conn_state(conn->tls, ESP_TLS_CONNECTING);
 
     esp_tls_cfg_t cfg = {
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
         .timeout_ms = timeout_ms,
     };
 

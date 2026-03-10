@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
-#include "esp_crt_bundle.h"
+#include "compat/mbedtls_compat.h"
 #include "esp_heap_caps.h"
 #include "nvs.h"
 #include "cJSON.h"
@@ -87,11 +87,17 @@ typedef struct {
     char *data;
     size_t len;
     size_t cap;
+    bool use_spiram;
 } resp_buf_t;
 
 static esp_err_t resp_buf_init(resp_buf_t *rb, size_t initial_cap)
 {
     rb->data = heap_caps_calloc(1, initial_cap, MALLOC_CAP_SPIRAM);
+    rb->use_spiram = (rb->data != NULL);
+    if (!rb->data) {
+        rb->data = heap_caps_calloc(1, initial_cap, MALLOC_CAP_8BIT);
+        rb->use_spiram = false;
+    }
     if (!rb->data) return ESP_ERR_NO_MEM;
     rb->len = 0;
     rb->cap = initial_cap;
@@ -102,7 +108,12 @@ static esp_err_t resp_buf_append(resp_buf_t *rb, const char *data, size_t len)
 {
     while (rb->len + len >= rb->cap) {
         size_t new_cap = rb->cap * 2;
-        char *tmp = heap_caps_realloc(rb->data, new_cap, MALLOC_CAP_SPIRAM);
+        char *tmp = NULL;
+        if (rb->use_spiram) {
+            tmp = heap_caps_realloc(rb->data, new_cap, MALLOC_CAP_SPIRAM);
+        } else {
+            tmp = realloc(rb->data, new_cap);
+        }
         if (!tmp) return ESP_ERR_NO_MEM;
         rb->data = tmp;
         rb->cap = new_cap;
@@ -257,7 +268,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
         .timeout_ms = 120 * 1000,
         .buffer_size = 4096,
         .buffer_size_tx = 4096,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);

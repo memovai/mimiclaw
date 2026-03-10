@@ -11,7 +11,7 @@
 #include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_websocket_client.h"
-#include "esp_crt_bundle.h"
+#include "compat/mbedtls_compat.h"
 #include "esp_timer.h"
 #include "esp_event.h"
 #include "nvs.h"
@@ -327,7 +327,7 @@ static esp_err_t feishu_get_tenant_token(void)
         .timeout_ms = 10000,
         .buffer_size = 2048,
         .buffer_size_tx = 2048,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -387,7 +387,7 @@ static char *feishu_api_call(const char *url, const char *method, const char *po
         .timeout_ms = 15000,
         .buffer_size = 2048,
         .buffer_size_tx = 2048,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -464,7 +464,7 @@ static esp_err_t feishu_pull_ws_config(void)
         .timeout_ms = 15000,
         .buffer_size = 2048,
         .buffer_size_tx = 1024,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) {
@@ -620,7 +620,7 @@ static void feishu_ws_task(void *arg)
             .reconnect_timeout_ms = s_ws_reconnect_interval_ms,
             .network_timeout_ms = 10000,
             .disable_auto_reconnect = false,
-            .crt_bundle_attach = esp_crt_bundle_attach,
+            .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
         };
 
         s_ws_client = esp_websocket_client_init(&ws_cfg);

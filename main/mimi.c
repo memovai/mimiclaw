@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -25,8 +26,27 @@
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
+#include "micropython/mpy_runner.h"
 
 static const char *TAG = "mimi";
+
+static bool wait_for_time_sync(uint32_t timeout_ms)
+{
+    const uint32_t step_ms = 500;
+    uint32_t waited = 0;
+    while (waited < timeout_ms) {
+        time_t now = 0;
+        struct tm timeinfo = {0};
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        if (timeinfo.tm_year >= (2020 - 1900)) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(step_ms));
+        waited += step_ms;
+    }
+    return false;
+}
 
 static esp_err_t init_nvs(void)
 {
@@ -125,6 +145,7 @@ void app_main(void)
     ESP_ERROR_CHECK(message_bus_init());
     ESP_ERROR_CHECK(memory_store_init());
     ESP_ERROR_CHECK(skill_loader_init());
+    ESP_ERROR_CHECK(mpy_runner_init());
     ESP_ERROR_CHECK(session_mgr_init());
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(http_proxy_init());
@@ -147,6 +168,10 @@ void app_main(void)
         ESP_LOGI(TAG, "Waiting for WiFi connection...");
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
+
+            if (!wait_for_time_sync(15000)) {
+                ESP_LOGW(TAG, "Time not synced yet; TLS may fail until SNTP completes");
+            }
 
             /* Outbound dispatch task should start first to avoid dropping early replies. */
             ESP_ERROR_CHECK((xTaskCreatePinnedToCore(

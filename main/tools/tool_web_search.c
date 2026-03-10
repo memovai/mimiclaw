@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
-#include "esp_crt_bundle.h"
+#include "compat/mbedtls_compat.h"
 #include "esp_heap_caps.h"
 #include "nvs.h"
 #include "cJSON.h"
@@ -221,7 +221,7 @@ static esp_err_t brave_search_direct(const char *url, search_buf_t *sb)
         .user_data = sb,
         .timeout_ms = 15000,
         .buffer_size = 4096,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -314,7 +314,7 @@ static esp_err_t tavily_search_direct(const char *query, search_buf_t *sb)
         .user_data = sb,
         .timeout_ms = 15000,
         .buffer_size = 4096,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -447,6 +447,9 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
     /* Allocate response buffer from PSRAM */
     search_buf_t sb = {0};
     sb.data = heap_caps_calloc(1, SEARCH_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    if (!sb.data) {
+        sb.data = calloc(1, SEARCH_BUF_SIZE);
+    }
     if (!sb.data) {
         snprintf(output, output_size, "Error: Out of memory");
         return ESP_ERR_NO_MEM;

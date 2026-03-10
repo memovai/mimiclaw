@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
-#include "esp_crt_bundle.h"
+#include "compat/mbedtls_compat.h"
 
 static const char *TAG = "tool_time";
 
@@ -139,7 +139,7 @@ static esp_err_t fetch_time_direct(char *out, size_t out_size)
         .url = "https://api.telegram.org/",
         .method = HTTP_METHOD_HEAD,
         .timeout_ms = 10000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
+        .crt_bundle_attach = MIMI_CRT_BUNDLE_ATTACH,
         .event_handler = time_http_event_handler,
         .user_data = &ctx,
     };

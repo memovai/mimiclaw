@@ -12,6 +12,7 @@
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
+#include "micropython/mpy_runner.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -90,6 +91,59 @@ static struct {
     struct arg_end *end;
 } feishu_send_args;
 
+/* --- mpy_write command --- */
+static struct {
+    struct arg_str *name;
+    struct arg_str *content;
+    struct arg_end *end;
+} mpy_write_args;
+
+/* --- mpy_run command --- */
+static struct {
+    struct arg_str *name;
+    struct arg_end *end;
+} mpy_run_args;
+
+/* --- mpy_exec command --- */
+static struct {
+    struct arg_str *code;
+    struct arg_end *end;
+} mpy_exec_args;
+
+typedef struct {
+    bool is_file;
+    char *payload;
+} mpy_task_ctx_t;
+
+static bool mpy_resolve_path(const char *name, char *out, size_t out_size)
+{
+    if (!name || !out || out_size == 0) return false;
+    if (strstr(name, "..")) return false;
+    if (name[0] == '/') {
+        size_t base_len = strlen(MIMI_SPIFFS_BASE);
+        if (strncmp(name, MIMI_SPIFFS_BASE, base_len) != 0) return false;
+        snprintf(out, out_size, "%s", name);
+        return true;
+    }
+    snprintf(out, out_size, "%s/%s", MIMI_SPIFFS_MPY_DIR, name);
+    return true;
+}
+
+static void mpy_exec_task(void *arg)
+{
+    mpy_task_ctx_t *ctx = (mpy_task_ctx_t *)arg;
+    esp_err_t err = ESP_FAIL;
+    if (ctx->is_file) {
+        err = mpy_exec_file(ctx->payload);
+    } else {
+        err = mpy_exec_code(ctx->payload, strlen(ctx->payload));
+    }
+    printf("mpy_exec status: %s\n", esp_err_to_name(err));
+    free(ctx->payload);
+    free(ctx);
+    vTaskDelete(NULL);
+}
+
 static int cmd_set_feishu_creds(int argc, char **argv)
 {
     int nerrors = arg_parse(argc, argv, (void **)&feishu_creds_args);
@@ -115,6 +169,103 @@ static int cmd_feishu_send(int argc, char **argv)
                                         feishu_send_args.text->sval[0]);
     printf("feishu_send status: %s\n", esp_err_to_name(err));
     return (err == ESP_OK) ? 0 : 1;
+}
+
+/* --- mpy_write command --- */
+static int cmd_mpy_write(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&mpy_write_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, mpy_write_args.end, argv[0]);
+        return 1;
+    }
+    char path[256];
+    if (!mpy_resolve_path(mpy_write_args.name->sval[0], path, sizeof(path))) {
+        printf("mpy_write status: invalid path\n");
+        return 1;
+    }
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        printf("mpy_write status: cannot open %s\n", path);
+        return 1;
+    }
+    const char *content = mpy_write_args.content->sval[0];
+    fwrite(content, 1, strlen(content), f);
+    fclose(f);
+    printf("mpy_write status: OK (%s)\n", path);
+    return 0;
+}
+
+/* --- mpy_run command --- */
+static int cmd_mpy_run(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&mpy_run_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, mpy_run_args.end, argv[0]);
+        return 1;
+    }
+    char path[256];
+    if (!mpy_resolve_path(mpy_run_args.name->sval[0], path, sizeof(path))) {
+        printf("mpy_run status: invalid path\n");
+        return 1;
+    }
+
+    mpy_task_ctx_t *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        printf("mpy_run status: no memory\n");
+        return 1;
+    }
+    ctx->is_file = true;
+    ctx->payload = strdup(path);
+    if (!ctx->payload) {
+        free(ctx);
+        printf("mpy_run status: no memory\n");
+        return 1;
+    }
+
+    if (xTaskCreatePinnedToCore(mpy_exec_task, "cli_mpy_run",
+                                MIMI_MPY_TASK_STACK, ctx, MIMI_MPY_TASK_PRIO,
+                                NULL, MIMI_MPY_TASK_CORE) != pdPASS) {
+        free(ctx->payload);
+        free(ctx);
+        printf("mpy_run status: failed to start task\n");
+        return 1;
+    }
+    printf("mpy_run queued (%s)\n", path);
+    return 0;
+}
+
+/* --- mpy_exec command --- */
+static int cmd_mpy_exec(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&mpy_exec_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, mpy_exec_args.end, argv[0]);
+        return 1;
+    }
+    mpy_task_ctx_t *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        printf("mpy_exec status: no memory\n");
+        return 1;
+    }
+    ctx->is_file = false;
+    ctx->payload = strdup(mpy_exec_args.code->sval[0]);
+    if (!ctx->payload) {
+        free(ctx);
+        printf("mpy_exec status: no memory\n");
+        return 1;
+    }
+
+    if (xTaskCreatePinnedToCore(mpy_exec_task, "cli_mpy_exec",
+                                MIMI_MPY_TASK_STACK, ctx, MIMI_MPY_TASK_PRIO,
+                                NULL, MIMI_MPY_TASK_CORE) != pdPASS) {
+        free(ctx->payload);
+        free(ctx);
+        printf("mpy_exec status: failed to start task\n");
+        return 1;
+    }
+    printf("mpy_exec queued\n");
+    return 0;
 }
 
 /* --- set_api_key command --- */
@@ -837,6 +988,40 @@ esp_err_t serial_cli_init(void)
         .argtable = &feishu_send_args,
     };
     esp_console_cmd_register(&feishu_send_cmd);
+
+    /* mpy_write */
+    mpy_write_args.name = arg_str1(NULL, NULL, "<name>", "Script name or absolute path");
+    mpy_write_args.content = arg_str1(NULL, NULL, "<content>", "Python code (quote if contains spaces)");
+    mpy_write_args.end = arg_end(2);
+    esp_console_cmd_t mpy_write_cmd = {
+        .command = "mpy_write",
+        .help = "Write MicroPython script to " MIMI_SPIFFS_MPY_DIR,
+        .func = &cmd_mpy_write,
+        .argtable = &mpy_write_args,
+    };
+    esp_console_cmd_register(&mpy_write_cmd);
+
+    /* mpy_run */
+    mpy_run_args.name = arg_str1(NULL, NULL, "<name>", "Script name or absolute path");
+    mpy_run_args.end = arg_end(1);
+    esp_console_cmd_t mpy_run_cmd = {
+        .command = "mpy_run",
+        .help = "Run MicroPython script from " MIMI_SPIFFS_MPY_DIR,
+        .func = &cmd_mpy_run,
+        .argtable = &mpy_run_args,
+    };
+    esp_console_cmd_register(&mpy_run_cmd);
+
+    /* mpy_exec */
+    mpy_exec_args.code = arg_str1(NULL, NULL, "<code>", "Inline Python code (quote if contains spaces)");
+    mpy_exec_args.end = arg_end(1);
+    esp_console_cmd_t mpy_exec_cmd = {
+        .command = "mpy_exec",
+        .help = "Execute inline MicroPython code",
+        .func = &cmd_mpy_exec,
+        .argtable = &mpy_exec_args,
+    };
+    esp_console_cmd_register(&mpy_exec_cmd);
 
     /* set_api_key */
     api_key_args.key = arg_str1(NULL, NULL, "<key>", "LLM API key");
