@@ -123,6 +123,12 @@ static struct {
     struct arg_end *end;
 } api_key_args;
 
+/* --- set_api_base command --- */
+static struct {
+    struct arg_str *base;
+    struct arg_end *end;
+} api_base_args;
+
 static int cmd_set_api_key(int argc, char **argv)
 {
     int nerrors = arg_parse(argc, argv, (void **)&api_key_args);
@@ -132,6 +138,18 @@ static int cmd_set_api_key(int argc, char **argv)
     }
     llm_set_api_key(api_key_args.key->sval[0]);
     printf("API key saved.\n");
+    return 0;
+}
+
+static int cmd_set_api_base(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&api_base_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, api_base_args.end, argv[0]);
+        return 1;
+    }
+    llm_set_api_base(api_base_args.base->sval[0]);
+    printf("API base set.\n");
     return 0;
 }
 
@@ -535,6 +553,7 @@ static int cmd_config_show(int argc, char **argv)
     print_config("WiFi Pass",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_PASS,     MIMI_SECRET_WIFI_PASS,  true);
     print_config("TG Token",   MIMI_NVS_TG,     MIMI_NVS_KEY_TG_TOKEN, MIMI_SECRET_TG_TOKEN,   true);
     print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_API_KEY,    true);
+    print_config("API Base",   MIMI_NVS_LLM,    MIMI_NVS_KEY_API_BASE, MIMI_SECRET_API_BASE,   false);
     print_config("Model",      MIMI_NVS_LLM,    MIMI_NVS_KEY_MODEL,    MIMI_SECRET_MODEL,      false);
     print_config("Provider",   MIMI_NVS_LLM,    MIMI_NVS_KEY_PROVIDER, MIMI_SECRET_MODEL_PROVIDER, false);
     print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
@@ -848,6 +867,17 @@ esp_err_t serial_cli_init(void)
         .argtable = &api_key_args,
     };
     esp_console_cmd_register(&api_key_cmd);
+
+    /* set_api_base */
+    api_base_args.base = arg_str1(NULL, NULL, "<base>", "LLM API base (http(s)://host[:port][/path])");
+    api_base_args.end = arg_end(1);
+    esp_console_cmd_t api_base_cmd = {
+        .command = "set_api_base",
+        .help = "Set LLM API base (e.g. https://api.anthropic.com/v1)",
+        .func = &cmd_set_api_base,
+        .argtable = &api_base_args,
+    };
+    esp_console_cmd_register(&api_base_cmd);
 
     /* set_model */
     model_args.model = arg_str1(NULL, NULL, "<model>", "Model identifier");
