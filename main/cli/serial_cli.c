@@ -3,6 +3,7 @@
 #include "wifi/wifi_manager.h"
 #include "channels/telegram/telegram_bot.h"
 #include "channels/feishu/feishu_bot.h"
+#include "channels/imessage/imessage_bot.h"
 #include "llm/llm_proxy.h"
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
@@ -90,6 +91,21 @@ static struct {
     struct arg_end *end;
 } feishu_send_args;
 
+/* --- set_imsg_creds command --- */
+static struct {
+    struct arg_str *server_url;
+    struct arg_str *api_key;
+    struct arg_str *proxy_url;
+    struct arg_end *end;
+} imsg_creds_args;
+
+/* --- imsg_send command --- */
+static struct {
+    struct arg_str *to;
+    struct arg_str *text;
+    struct arg_end *end;
+} imsg_send_args;
+
 static int cmd_set_feishu_creds(int argc, char **argv)
 {
     int nerrors = arg_parse(argc, argv, (void **)&feishu_creds_args);
@@ -114,6 +130,37 @@ static int cmd_feishu_send(int argc, char **argv)
     esp_err_t err = feishu_send_message(feishu_send_args.receive_id->sval[0],
                                         feishu_send_args.text->sval[0]);
     printf("feishu_send status: %s\n", esp_err_to_name(err));
+    return (err == ESP_OK) ? 0 : 1;
+}
+
+/* --- set_imsg_creds command --- */
+static int cmd_set_imsg_creds(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&imsg_creds_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, imsg_creds_args.end, argv[0]);
+        return 1;
+    }
+    const char *proxy = (imsg_creds_args.proxy_url->count > 0)
+                        ? imsg_creds_args.proxy_url->sval[0] : NULL;
+    imessage_set_credentials(imsg_creds_args.server_url->sval[0],
+                             imsg_creds_args.api_key->sval[0], proxy);
+    printf("iMessage credentials saved.\n");
+    return 0;
+}
+
+/* --- imsg_send command --- */
+static int cmd_imsg_send(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&imsg_send_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, imsg_send_args.end, argv[0]);
+        return 1;
+    }
+
+    esp_err_t err = imessage_send_message(imsg_send_args.to->sval[0],
+                                          imsg_send_args.text->sval[0]);
+    printf("imsg_send status: %s\n", esp_err_to_name(err));
     return (err == ESP_OK) ? 0 : 1;
 }
 
@@ -534,6 +581,9 @@ static int cmd_config_show(int argc, char **argv)
     print_config("WiFi SSID",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_SSID,     MIMI_SECRET_WIFI_SSID,  false);
     print_config("WiFi Pass",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_PASS,     MIMI_SECRET_WIFI_PASS,  true);
     print_config("TG Token",   MIMI_NVS_TG,     MIMI_NVS_KEY_TG_TOKEN, MIMI_SECRET_TG_TOKEN,   true);
+    print_config("iMsg URL",   MIMI_NVS_IMSG,   MIMI_NVS_KEY_IMSG_URL, MIMI_SECRET_IMSG_SERVER_URL, false);
+    print_config("iMsg Key",   MIMI_NVS_IMSG,   MIMI_NVS_KEY_IMSG_API_KEY, MIMI_SECRET_IMSG_API_KEY, true);
+    print_config("iMsg Proxy", MIMI_NVS_IMSG,   MIMI_NVS_KEY_IMSG_PROXY_URL, MIMI_SECRET_IMSG_PROXY_URL, false);
     print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_API_KEY,    true);
     print_config("Model",      MIMI_NVS_LLM,    MIMI_NVS_KEY_MODEL,    MIMI_SECRET_MODEL,      false);
     print_config("Provider",   MIMI_NVS_LLM,    MIMI_NVS_KEY_PROVIDER, MIMI_SECRET_MODEL_PROVIDER, false);
@@ -549,9 +599,10 @@ static int cmd_config_show(int argc, char **argv)
 static int cmd_config_reset(int argc, char **argv)
 {
     const char *namespaces[] = {
-        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH
+        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_FEISHU, MIMI_NVS_IMSG,
+        MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 7; i++) {
         nvs_handle_t nvs;
         if (nvs_open(namespaces[i], NVS_READWRITE, &nvs) == ESP_OK) {
             nvs_erase_all(nvs);
@@ -837,6 +888,31 @@ esp_err_t serial_cli_init(void)
         .argtable = &feishu_send_args,
     };
     esp_console_cmd_register(&feishu_send_cmd);
+
+    /* set_imsg_creds */
+    imsg_creds_args.server_url = arg_str1(NULL, NULL, "<server_url>", "Upstream iMessage Kit server URL");
+    imsg_creds_args.api_key = arg_str1(NULL, NULL, "<api_key>", "iMessage proxy API key");
+    imsg_creds_args.proxy_url = arg_str0(NULL, NULL, "<proxy_url>", "REST proxy base URL (optional)");
+    imsg_creds_args.end = arg_end(3);
+    esp_console_cmd_t imsg_creds_cmd = {
+        .command = "set_imsg_creds",
+        .help = "Set iMessage credentials: set_imsg_creds <server_url> <api_key> [proxy_url]",
+        .func = &cmd_set_imsg_creds,
+        .argtable = &imsg_creds_args,
+    };
+    esp_console_cmd_register(&imsg_creds_cmd);
+
+    /* imsg_send */
+    imsg_send_args.to = arg_str1(NULL, NULL, "<to>", "iMessage address (email or +phone)");
+    imsg_send_args.text = arg_str1(NULL, NULL, "<text>", "Text message (quote if contains spaces)");
+    imsg_send_args.end = arg_end(2);
+    esp_console_cmd_t imsg_send_cmd = {
+        .command = "imsg_send",
+        .help = "Send iMessage: imsg_send user@example.com \"hello\"",
+        .func = &cmd_imsg_send,
+        .argtable = &imsg_send_args,
+    };
+    esp_console_cmd_register(&imsg_send_cmd);
 
     /* set_api_key */
     api_key_args.key = arg_str1(NULL, NULL, "<key>", "LLM API key");

@@ -47,6 +47,17 @@
 #define MIMI_SECRET_TAVILY_KEY      ""
 #endif
 
+/* iMessage (Advanced iMessage HTTP Proxy) */
+#ifndef MIMI_SECRET_IMSG_SERVER_URL
+#define MIMI_SECRET_IMSG_SERVER_URL ""
+#endif
+#ifndef MIMI_SECRET_IMSG_API_KEY
+#define MIMI_SECRET_IMSG_API_KEY    ""
+#endif
+#ifndef MIMI_SECRET_IMSG_PROXY_URL
+#define MIMI_SECRET_IMSG_PROXY_URL  "https://imessage-swagger.photon.codes"
+#endif
+
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
 #define MIMI_WIFI_RETRY_BASE_MS      1000
@@ -69,6 +80,14 @@
 #define MIMI_FEISHU_WEBHOOK_PORT         18790
 #define MIMI_FEISHU_WEBHOOK_PATH         "/feishu/events"
 #define MIMI_FEISHU_WEBHOOK_MAX_BODY     (16 * 1024)
+
+/* iMessage Bot (Advanced iMessage HTTP Proxy) */
+#define MIMI_IMSG_MAX_MSG_LEN            4096
+#define MIMI_IMSG_POLL_STACK             (16 * 1024)
+#define MIMI_IMSG_POLL_PRIO              5
+#define MIMI_IMSG_POLL_CORE              0
+#define MIMI_IMSG_POLL_INTERVAL_MS       5000
+#define MIMI_IMSG_HTTP_TIMEOUT_MS        15000
 
 /* Agent Loop */
 #define MIMI_AGENT_STACK             (24 * 1024)
@@ -133,6 +152,7 @@
 #define MIMI_NVS_WIFI                "wifi_config"
 #define MIMI_NVS_TG                  "tg_config"
 #define MIMI_NVS_FEISHU              "feishu_config"
+#define MIMI_NVS_IMSG                "imsg_config"
 #define MIMI_NVS_LLM                 "llm_config"
 #define MIMI_NVS_PROXY               "proxy_config"
 #define MIMI_NVS_SEARCH              "search_config"
@@ -143,6 +163,10 @@
 #define MIMI_NVS_KEY_TG_TOKEN        "bot_token"
 #define MIMI_NVS_KEY_FEISHU_APP_ID   "app_id"
 #define MIMI_NVS_KEY_FEISHU_APP_SECRET "app_secret"
+#define MIMI_NVS_KEY_IMSG_URL        "server_url"
+#define MIMI_NVS_KEY_IMSG_API_KEY    "api_key"
+#define MIMI_NVS_KEY_IMSG_PROXY_URL  "proxy_url"
+#define MIMI_NVS_KEY_IMSG_CONTACTS  "contacts"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
 #define MIMI_NVS_KEY_TAVILY_KEY      "tavily_key"
 #define MIMI_NVS_KEY_MODEL           "model"

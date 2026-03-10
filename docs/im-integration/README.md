@@ -7,6 +7,7 @@ Configuration guides for MimiClaw's instant messaging channel integrations.
 | Guide | Service | Description |
 |-------|---------|-------------|
 | [Feishu Setup](FEISHU_SETUP.md) | [Feishu / Lark](https://open.feishu.cn/) | Feishu bot channel — receive and send messages via Feishu |
+| [iMessage Setup](IMESSAGE_SETUP.md) | [iMessage / Photon](https://photon.codes) | iMessage channel — send and receive iMessages via Photon proxy |
 
 ## Overview
 
