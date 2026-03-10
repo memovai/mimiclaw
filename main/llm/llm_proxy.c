@@ -230,6 +230,46 @@ static bool llm_protocol_is_openai(void) {
     return s_protocol == LLM_PROTOCOL_OPENAI;
 }
 
+/* Validate api_base format without modifying global state */
+static esp_err_t llm_validate_api_base(const char *api_base) {
+    if (!api_base || api_base[0] == '\0') return ESP_ERR_INVALID_ARG;
+
+    /* Check for valid scheme */
+    const char *p;
+    if (strncmp(api_base, "https://", 8) == 0) {
+        p = api_base + 8;
+    } else if (strncmp(api_base, "http://", 7) == 0) {
+        p = api_base + 7;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Basic format validation - ensure there's content after the scheme */
+    if (p[0] == '\0' || p[0] == '/' || p[0] == ':') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Check for valid host part (before colon or slash) */
+    const char *slash = strchr(p, '/');
+    const char *colon = strchr(p, ':');
+    if (colon && slash && colon > slash) colon = NULL; /* Colon is part of path */
+
+    const char *host_end = colon ? colon : (slash ? slash : p + strlen(p));
+    if (host_end == p) return ESP_ERR_INVALID_ARG; /* Empty host */
+
+    /* Validate port if present */
+    if (colon) {
+        char *endptr;
+        long port = strtol(colon + 1, &endptr, 10);
+        if (endptr == colon + 1 || (*endptr != '\0' && *endptr != '/') ||
+            port < 1 || port > 65535) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    return ESP_OK;
+}
+
 /* Parse api_base: scheme (http/https), host[:port], optional base path. */
 static esp_err_t llm_parse_api_base(const char *api_base) {
     if (!api_base || api_base[0] == '\0') return ESP_ERR_INVALID_ARG;
@@ -281,6 +321,7 @@ static void llm_build_request_targets(void) {
 
 static void llm_recompute_effective_config(void) {
     /* Determine protocol + model_id (prefix overrides provider), and update request targets. */
+    s_logged_proxy_bypass_warning = false;  /* Reset warning flag when config changes */
     s_protocol = (strcmp(s_provider, "openai") == 0) ? LLM_PROTOCOL_OPENAI : LLM_PROTOCOL_ANTHROPIC;
     const char *model_id = s_model;
 
@@ -885,6 +926,13 @@ esp_err_t llm_set_api_key(const char *api_key)
 
 esp_err_t llm_set_api_base(const char *api_base)
 {
+    /* Validate before persisting - use validation-only function */
+    esp_err_t err = llm_validate_api_base(api_base);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Invalid API base format: %s", api_base ? api_base : "<null>");
+        return err;
+    }
+
     nvs_handle_t nvs;
     ESP_ERROR_CHECK(nvs_open(MIMI_NVS_LLM, NVS_READWRITE, &nvs));
     ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_API_BASE, api_base));
