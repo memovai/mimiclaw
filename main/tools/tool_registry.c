@@ -4,6 +4,7 @@
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
+#include "tools/tool_run_python.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -175,6 +176,20 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* Register run_python */
+    mimi_tool_t rp = {
+        .name = "run_python",
+        .description = "Execute a Python script on Board B (remote ESP32 running MicroPython) via ESP-NOW. "
+                       "Returns stdout output and any exceptions. Board B must be powered on and paired.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"code\":{\"type\":\"string\",\"description\":\"Python source code to execute\"},"
+            "\"timeout_ms\":{\"type\":\"integer\",\"description\":\"Max execution time in ms (default 15000)\"}},"
+            "\"required\":[\"code\"]}",
+        .execute = tool_run_python_execute,
+    };
+    register_tool(&rp);
 
     build_tools_json();
 

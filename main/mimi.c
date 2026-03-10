@@ -25,6 +25,7 @@
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
+#include "espnow/espnow_manager.h"
 
 static const char *TAG = "mimi";
 
@@ -147,6 +148,16 @@ void app_main(void)
         ESP_LOGI(TAG, "Waiting for WiFi connection...");
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
+
+            /* Initialize ESP-NOW (optional, non-fatal if peer not configured) */
+            esp_err_t espnow_err = espnow_manager_init();
+            if (espnow_err == ESP_OK) {
+                ESP_LOGI(TAG, "ESP-NOW ready (Board B paired)");
+            } else if (espnow_err == ESP_ERR_NOT_FOUND) {
+                ESP_LOGI(TAG, "ESP-NOW peer not set (use 'set_espnow_peer' to configure)");
+            } else {
+                ESP_LOGW(TAG, "ESP-NOW init failed: %s", esp_err_to_name(espnow_err));
+            }
 
             /* Outbound dispatch task should start first to avoid dropping early replies. */
             ESP_ERROR_CHECK((xTaskCreatePinnedToCore(

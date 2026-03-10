@@ -20,6 +20,8 @@ idf_component_register(
         "tools/tool_web_search.c"
         "tools/tool_get_time.c"
         "tools/tool_files.c"
+        "tools/tool_run_python.c"
+        "espnow/espnow_manager.c"
         "skills/skill_loader.c"
     INCLUDE_DIRS
         "."

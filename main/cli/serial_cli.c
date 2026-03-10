@@ -12,6 +12,7 @@
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
+#include "espnow/espnow_manager.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -541,6 +542,24 @@ static int cmd_config_show(int argc, char **argv)
     print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
     print_config("Tavily Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_TAVILY_KEY, MIMI_SECRET_TAVILY_KEY, true);
+
+    /* ESP-NOW peer MAC */
+    {
+        uint8_t mac[6] = {0};
+        nvs_handle_t nvs;
+        if (nvs_open(MIMI_NVS_ESPNOW, NVS_READONLY, &nvs) == ESP_OK) {
+            size_t len = 6;
+            if (nvs_get_blob(nvs, MIMI_NVS_KEY_PEER_MAC, mac, &len) == ESP_OK && len == 6) {
+                printf("  %-14s: %02x:%02x:%02x:%02x:%02x:%02x  [NVS]\n", "ESP-NOW Peer",
+                       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+            } else {
+                printf("  %-14s: (not set)\n", "ESP-NOW Peer");
+            }
+            nvs_close(nvs);
+        } else {
+            printf("  %-14s: (not set)\n", "ESP-NOW Peer");
+        }
+    }
     printf("=============================\n");
     return 0;
 }
@@ -549,9 +568,9 @@ static int cmd_config_show(int argc, char **argv)
 static int cmd_config_reset(int argc, char **argv)
 {
     const char *namespaces[] = {
-        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH
+        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_FEISHU, MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH, MIMI_NVS_ESPNOW
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 7; i++) {
         nvs_handle_t nvs;
         if (nvs_open(namespaces[i], NVS_READWRITE, &nvs) == ESP_OK) {
             nvs_erase_all(nvs);
@@ -740,6 +759,45 @@ static int cmd_web_search(int argc, char **argv)
     printf("%s\n", output[0] ? output : "(empty)");
     free(output);
     return (err == ESP_OK) ? 0 : 1;
+}
+
+/* --- set_espnow_peer command --- */
+static struct {
+    struct arg_str *mac;
+    struct arg_end *end;
+} espnow_peer_args;
+
+static int cmd_set_espnow_peer(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&espnow_peer_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, espnow_peer_args.end, argv[0]);
+        return 1;
+    }
+
+    const char *mac_str = espnow_peer_args.mac->sval[0];
+    uint8_t mac[6];
+    int parsed = sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                        &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+    if (parsed != 6) {
+        printf("Invalid MAC format. Use XX:XX:XX:XX:XX:XX\n");
+        return 1;
+    }
+
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(MIMI_NVS_ESPNOW, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        printf("NVS open failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    nvs_set_blob(nvs, MIMI_NVS_KEY_PEER_MAC, mac, 6);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+
+    printf("ESP-NOW peer MAC saved: %02x:%02x:%02x:%02x:%02x:%02x\n",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    printf("Restart to apply.\n");
+    return 0;
 }
 
 /* --- restart command --- */
@@ -1040,6 +1098,17 @@ esp_err_t serial_cli_init(void)
         .argtable = &web_search_args,
     };
     esp_console_cmd_register(&web_search_cmd);
+
+    /* set_espnow_peer */
+    espnow_peer_args.mac = arg_str1(NULL, NULL, "<mac>", "Board B MAC (XX:XX:XX:XX:XX:XX)");
+    espnow_peer_args.end = arg_end(1);
+    esp_console_cmd_t espnow_peer_cmd = {
+        .command = "set_espnow_peer",
+        .help = "Set ESP-NOW peer MAC for Board B (e.g. set_espnow_peer AA:BB:CC:DD:EE:FF)",
+        .func = &cmd_set_espnow_peer,
+        .argtable = &espnow_peer_args,
+    };
+    esp_console_cmd_register(&espnow_peer_cmd);
 
     /* restart */
     esp_console_cmd_t restart_cmd = {

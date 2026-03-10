@@ -137,6 +137,14 @@
 #define MIMI_NVS_PROXY               "proxy_config"
 #define MIMI_NVS_SEARCH              "search_config"
 
+/* ESP-NOW (Dual-board) */
+#define MIMI_ESPNOW_CHANNEL          0        /* 0 = use current WiFi channel */
+#define MIMI_ESPNOW_TIMEOUT_MS       15000
+#define MIMI_ESPNOW_RESULT_BUF       4096
+
+/* NVS Namespaces (continued) */
+#define MIMI_NVS_ESPNOW              "espnow_config"
+
 /* NVS Keys */
 #define MIMI_NVS_KEY_SSID            "ssid"
 #define MIMI_NVS_KEY_PASS            "password"
@@ -149,3 +157,4 @@
 #define MIMI_NVS_KEY_PROVIDER        "provider"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"
+#define MIMI_NVS_KEY_PEER_MAC        "peer_mac"
