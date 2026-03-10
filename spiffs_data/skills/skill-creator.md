@@ -16,6 +16,15 @@ When the user asks to create a new skill, teach the bot something, or add a new 
 3. Save to `/spiffs/skills/<name>.md` using write_file
 4. The skill will be automatically available after the next conversation
 
+## Python-enabled skills
+You can create skills that execute Python code using the `run_python` tool.
+MicroPython capabilities: math, string processing, json, regex, list/dict ops, collections, struct, binascii, random.
+MicroPython limitations: NO network, NO file I/O, NO hardware access, NO pip packages.
+Use `print()` to return results — stdout is captured as the tool output.
+
+Example: a skill could instruct the agent to use `run_python` for calculations,
+data transformations, or text processing that would be unreliable via pure LLM reasoning.
+
 ## Best practices
 - Keep skills concise — the context window is limited
 - Focus on WHAT to do, not HOW (the agent is smart)

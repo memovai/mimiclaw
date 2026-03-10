@@ -4,6 +4,7 @@
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
+#include "tools/tool_run_python.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -175,6 +176,21 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* Register run_python */
+    mimi_tool_t rp = {
+        .name = "run_python",
+        .description = "Execute Python code via embedded MicroPython VM. Use print() for output. "
+                       "Available modules: math, json, re, collections, struct, binascii, random. "
+                       "No network/file/hardware access.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"code\":{\"type\":\"string\",\"description\":\"Python code to execute. Use print() to produce output.\"},"
+            "\"timeout_ms\":{\"type\":\"integer\",\"description\":\"Execution timeout in milliseconds (default 10000, max 30000)\"}},"
+            "\"required\":[\"code\"]}",
+        .execute = tool_run_python_execute,
+    };
+    register_tool(&rp);
 
     build_tools_json();
 

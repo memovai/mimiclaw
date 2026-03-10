@@ -25,6 +25,7 @@
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
+#include "micropython/micropython_vm.h"
 
 static const char *TAG = "mimi";
 
@@ -120,6 +121,9 @@ void app_main(void)
     ESP_ERROR_CHECK(init_nvs());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(init_spiffs());
+
+    /* MicroPython VM (no WiFi dependency) */
+    ESP_ERROR_CHECK(micropython_vm_init());
 
     /* Initialize subsystems */
     ESP_ERROR_CHECK(message_bus_init());

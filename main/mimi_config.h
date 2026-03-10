@@ -120,6 +120,11 @@
 /* Skills */
 #define MIMI_SKILLS_PREFIX           MIMI_SPIFFS_BASE "/skills/"
 
+/* MicroPython VM */
+#define MIMI_MICROPYTHON_HEAP_SIZE   (512 * 1024)  /* 512KB from PSRAM */
+#define MIMI_MICROPYTHON_TIMEOUT_MS  10000
+#define MIMI_MICROPYTHON_OUTPUT_SIZE 4096
+
 /* WebSocket Gateway */
 #define MIMI_WS_PORT                 18789
 #define MIMI_WS_MAX_CLIENTS          4
