@@ -433,7 +433,9 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
             esp_http_client_set_header(client, "Authorization", auth);
         }
     } else {
-        esp_http_client_set_header(client, "x-api-key", s_api_key);
+        if (s_api_key[0] != '\0') {
+            esp_http_client_set_header(client, "x-api-key", s_api_key);
+        }
         esp_http_client_set_header(client, "anthropic-version", MIMI_LLM_API_VERSION);
     }
     esp_http_client_set_post_field(client, post_data, strlen(post_data));
@@ -457,10 +459,14 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
                        s_api_req_path, s_api_host_header);
 
     if (llm_protocol_is_openai()) {
-        off += snprintf(h + off, sizeof(h) - off, "Authorization: Bearer %s\r\n", s_api_key);
+        if (s_api_key[0] != '\0') {
+            off += snprintf(h + off, sizeof(h) - off, "Authorization: Bearer %s\r\n", s_api_key);
+        }
     } else {
-        off += snprintf(h + off, sizeof(h) - off, "x-api-key: %s\r\nanthropic-version: %s\r\n", 
-                        s_api_key, MIMI_LLM_API_VERSION);
+        if (s_api_key[0] != '\0') {
+            off += snprintf(h + off, sizeof(h) - off, "x-api-key: %s\r\n", s_api_key);
+        }
+        off += snprintf(h + off, sizeof(h) - off, "anthropic-version: %s\r\n", MIMI_LLM_API_VERSION);
     }
 
     off += snprintf(h + off, sizeof(h) - off, "Content-Length: %zu\r\nConnection: close\r\n\r\n", strlen(post_data));
@@ -701,8 +707,6 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                          llm_response_t *resp)
 {
     memset(resp, 0, sizeof(*resp));
-
-    if (s_api_key[0] == '\0') return ESP_ERR_INVALID_STATE;
 
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
