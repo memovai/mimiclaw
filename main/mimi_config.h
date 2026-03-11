@@ -88,6 +88,8 @@
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+#define MIMI_QWEN_API_URL            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+#define MIMI_GEMINI_API_URL          "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0

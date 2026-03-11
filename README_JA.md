@@ -31,7 +31,7 @@ MimiClawは小さなESP32-S3ボードをパーソナルAIアシスタントに�
 
 ![](assets/mimiclaw.png)
 
-Telegramでメッセージを送ると、ESP32-S3がWiFi経由で受信し、エージェントループに送ります — LLMが思考し、ツールを呼び出し、メモリを読み取り — 返答を送り返します。**Anthropic (Claude)** と **OpenAI (GPT)** の両方をサポートし、実行時に切り替え可能です。すべてが$5のチップ上で動作し、データはすべてローカルのFlashに保存されます。
+Telegramでメッセージを送ると、ESP32-S3がWiFi経由で受信し、エージェントループに送ります — LLMが思考し、ツールを呼び出し、メモリを読み取り — 返答を送り返します。**Anthropic (Claude)**、**OpenAI (GPT)**、**Qwen (DashScope)**、**Gemini (Google互換エンドポイント)** をサポートし、実行時に切り替え可能です。すべてが$5のチップ上で動作し、データはすべてローカルのFlashに保存されます。
 
 ## クイックスタート
 
@@ -40,7 +40,7 @@ Telegramでメッセージを送ると、ESP32-S3がWiFi経由で受信し、エ
 - **ESP32-S3開発ボード**（16MB Flash + 8MB PSRAM搭載、例：小智AIボード、約$10）
 - **USB Type-Cケーブル**
 - **Telegram Botトークン** — Telegramで[@BotFather](https://t.me/BotFather)に話しかけて作成
-- **Anthropic APIキー** — [console.anthropic.com](https://console.anthropic.com)から取得、または **OpenAI APIキー** — [platform.openai.com](https://platform.openai.com)から取得
+- **Anthropic APIキー** — [console.anthropic.com](https://console.anthropic.com)から取得、または **OpenAI互換 APIキー**（OpenAI / Qwen / Gemini 互換エンドポイント）
 
 ### インストール
 
@@ -168,8 +168,8 @@ idf.py -p PORT flash monitor
 ```
 mimi> wifi_set MySSID MyPassword   # WiFiネットワークを変更
 mimi> set_tg_token 123456:ABC...   # Telegram Botトークンを変更
-mimi> set_api_key sk-ant-api03-... # APIキーを変更（AnthropicまたはOpenAI）
-mimi> set_model_provider openai    # プロバイダーを切替（anthropic|openai）
+mimi> set_api_key sk-ant-api03-... # APIキーを変更（Anthropic/OpenAI/Qwen/Gemini）
+mimi> set_model_provider openai    # プロバイダーを切替（anthropic|openai|qwen|gemini）
 mimi> set_model gpt-4o             # LLMモデルを変更
 mimi> set_proxy 127.0.0.1 7897    # HTTPプロキシを設定
 mimi> clear_proxy                  # プロキシを削除
@@ -197,9 +197,9 @@ mimi> restart                     # 再起動
 
 ほとんどの ESP32-S3 開発ボードには **2つの USB-C ポート**があります：
 
-| ポート | 用途 |
-|--------|------|
-| **USB**（JTAG） | `idf.py flash`、JTAGデバッグ |
+| ポート          | 用途                             |
+| --------------- | -------------------------------- |
+| **USB**（JTAG） | `idf.py flash`、JTAGデバッグ     |
 | **COM**（UART） | **REPL CLI**、シリアルコンソール |
 
 > **REPLにはUART（COM）ポートが必要です。** USB（JTAG）ポートは対話的なREPL入力をサポートしません。
@@ -207,9 +207,9 @@ mimi> restart                     # 再起動
 <details>
 <summary>ポート詳細と推奨ワークフロー</summary>
 
-| ポート | ラベル | プロトコル |
-|--------|--------|------------|
-| **USB** | USB / JTAG | ネイティブ USB Serial/JTAG |
+| ポート  | ラベル     | プロトコル                         |
+| ------- | ---------- | ---------------------------------- |
+| **USB** | USB / JTAG | ネイティブ USB Serial/JTAG         |
 | **COM** | UART / COM | 外部 UART ブリッジ（CP2102/CH340） |
 
 ESP-IDFコンソールはデフォルトでUART出力に設定されています（`CONFIG_ESP_CONSOLE_UART_DEFAULT=y`）。
@@ -238,27 +238,27 @@ idf.py -p /dev/cu.usbserial-110 monitor
 
 MimiClawはすべてのデータをプレーンテキストファイルとして保存します。直接読み取り・編集可能です：
 
-| ファイル | 説明 |
-|----------|------|
-| `SOUL.md` | ボットの性格 — 編集して振る舞いを変更 |
-| `USER.md` | あなたの情報 — 名前、好み、言語 |
-| `MEMORY.md` | 長期記憶 — ボットが常に覚えておくべきこと |
-| `HEARTBEAT.md` | タスクリスト — ボットが定期的にチェックして自律的に実行 |
-| `cron.json` | スケジュールジョブ — AIが作成した定期・単発タスク |
-| `2026-02-05.md` | 日次メモ — 今日あったこと |
-| `tg_12345.jsonl` | チャット履歴 — ボットとの会話 |
+| ファイル         | 説明                                                    |
+| ---------------- | ------------------------------------------------------- |
+| `SOUL.md`        | ボットの性格 — 編集して振る舞いを変更                   |
+| `USER.md`        | あなたの情報 — 名前、好み、言語                         |
+| `MEMORY.md`      | 長期記憶 — ボットが常に覚えておくべきこと               |
+| `HEARTBEAT.md`   | タスクリスト — ボットが定期的にチェックして自律的に実行 |
+| `cron.json`      | スケジュールジョブ — AIが作成した定期・単発タスク       |
+| `2026-02-05.md`  | 日次メモ — 今日あったこと                               |
+| `tg_12345.jsonl` | チャット履歴 — ボットとの会話                           |
 
 ## ツール
 
-MimiClawはAnthropicとOpenAI両方のツール呼び出しをサポート — LLMは会話中にツールを呼び出し、タスクが完了するまでループします（ReActパターン）。
+MimiClawはAnthropic と OpenAI互換プロバイダーのツール呼び出しをサポート — LLMは会話中にツールを呼び出し、タスクが完了するまでループします（ReActパターン）。
 
-| ツール | 説明 |
-|--------|------|
-| `web_search` | Tavily（優先）またはBraveでウェブ検索し、最新情報を取得 |
-| `get_current_time` | HTTP経由で現在の日時を取得し、システムクロックを設定 |
-| `cron_add` | 定期または単発タスクをスケジュール（LLMが自律的にcronジョブを作成） |
-| `cron_list` | スケジュール済みのcronジョブを一覧表示 |
-| `cron_remove` | IDでcronジョブを削除 |
+| ツール             | 説明                                                                |
+| ------------------ | ------------------------------------------------------------------- |
+| `web_search`       | Tavily（優先）またはBraveでウェブ検索し、最新情報を取得             |
+| `get_current_time` | HTTP経由で現在の日時を取得し、システムクロックを設定                |
+| `cron_add`         | 定期または単発タスクをスケジュール（LLMが自律的にcronジョブを作成） |
+| `cron_list`        | スケジュール済みのcronジョブを一覧表示                              |
+| `cron_remove`      | IDでcronジョブを削除                                                |
 
 ウェブ検索を有効にするには、`mimi_secrets.h`で[Tavily APIキー](https://app.tavily.com/home)（優先、`MIMI_SECRET_TAVILY_KEY`）または[Brave Search APIキー](https://brave.com/search/api/)（`MIMI_SECRET_SEARCH_KEY`）を設定してください。
 
@@ -280,10 +280,10 @@ MimiClawにはcronスケジューラが内蔵されており、AIが自律的に
 - **OTAアップデート** — WiFi経由でファームウェア更新、USB不要
 - **デュアルコア** — ネットワークI/OとAI処理が別々のCPUコアで動作
 - **HTTPプロキシ** — CONNECTトンネル対応、制限付きネットワークに対応
-- **マルチプロバイダー** — Anthropic (Claude) と OpenAI (GPT) の両方をサポート、実行時に切り替え可能
+- **マルチプロバイダー** — Anthropic (Claude)、OpenAI (GPT)、Qwen、Gemini をサポート、実行時に切り替え可能
 - **Cronスケジューラ** — AIが定期・単発タスクを自律的にスケジュール、再起動後も永続化
 - **ハートビート** — タスクファイルを定期チェックし、AIを自律的に駆動
-- **ツール呼び出し** — ReActエージェントループ、両プロバイダーでツール呼び出し対応
+- **ツール呼び出し** — ReActエージェントループ、全対応プロバイダーでツール呼び出し対応
 
 ## 開発者向け
 

@@ -31,7 +31,7 @@ MimiClaw turns a tiny ESP32-S3 board into a personal AI assistant. Plug it into 
 
 ![](assets/mimiclaw.png)
 
-You send a message on Telegram. The ESP32-S3 picks it up over WiFi, feeds it into an agent loop — the LLM thinks, calls tools, reads memory — and sends the reply back. Supports both **Anthropic (Claude)** and **OpenAI (GPT)** as providers, switchable at runtime. Everything runs on a single $5 chip with all your data stored locally on flash.
+You send a message on Telegram. The ESP32-S3 picks it up over WiFi, feeds it into an agent loop — the LLM thinks, calls tools, reads memory — and sends the reply back. Supports **Anthropic (Claude)**, **OpenAI (GPT)**, **Qwen (DashScope)**, and **Gemini (Google AI Studio/Vertex AI compatible endpoint)** as providers, switchable at runtime. Everything runs on a single $5 chip with all your data stored locally on flash.
 
 ## Quick Start
 
@@ -40,7 +40,7 @@ You send a message on Telegram. The ESP32-S3 picks it up over WiFi, feeds it int
 - An **ESP32-S3 dev board** with 16 MB flash and 8 MB PSRAM (e.g. Xiaozhi AI board, ~$10)
 - A **USB Type-C cable**
 - A **Telegram bot token** — talk to [@BotFather](https://t.me/BotFather) on Telegram to create one
-- An **Anthropic API key** — from [console.anthropic.com](https://console.anthropic.com), or an **OpenAI API key** — from [platform.openai.com](https://platform.openai.com)
+  An **Anthropic API key** — from [console.anthropic.com](https://console.anthropic.com), or an **OpenAI-compatible API key** (OpenAI / Qwen / Gemini compatibility endpoints)
 
 ### Install
 
@@ -168,8 +168,8 @@ Connect via serial to configure or debug. **Config commands** let you change set
 ```
 mimi> wifi_set MySSID MyPassword   # change WiFi network
 mimi> set_tg_token 123456:ABC...   # change Telegram bot token
-mimi> set_api_key sk-ant-api03-... # change API key (Anthropic or OpenAI)
-mimi> set_model_provider openai    # switch provider (anthropic|openai)
+mimi> set_api_key sk-ant-api03-... # change API key (Anthropic/OpenAI/Qwen/Gemini)
+mimi> set_model_provider openai    # switch provider (anthropic|openai|qwen|gemini)
 mimi> set_model gpt-4o             # change LLM model
 mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy
@@ -197,19 +197,19 @@ mimi> restart                     # reboot
 
 Most ESP32-S3 dev boards expose **two USB-C ports**:
 
-| Port | Use for |
-|------|---------|
+| Port           | Use for                        |
+| -------------- | ------------------------------ |
 | **USB** (JTAG) | `idf.py flash`, JTAG debugging |
-| **COM** (UART) | **REPL CLI**, serial console |
+| **COM** (UART) | **REPL CLI**, serial console   |
 
 > **REPL requires the UART (COM) port.** The USB (JTAG) port does not support interactive REPL input.
 
 <details>
 <summary>Port details & recommended workflow</summary>
 
-| Port | Label | Protocol |
-|------|-------|----------|
-| **USB** | USB / JTAG | Native USB Serial/JTAG |
+| Port    | Label      | Protocol                            |
+| ------- | ---------- | ----------------------------------- |
+| **USB** | USB / JTAG | Native USB Serial/JTAG              |
 | **COM** | UART / COM | External UART bridge (CP2102/CH340) |
 
 The ESP-IDF console/REPL is configured to use UART by default (`CONFIG_ESP_CONSOLE_UART_DEFAULT=y`).
@@ -238,27 +238,27 @@ idf.py -p /dev/cu.usbserial-110 monitor
 
 MimiClaw stores everything as plain text files you can read and edit:
 
-| File | What it is |
-|------|------------|
-| `SOUL.md` | The bot's personality — edit this to change how it behaves |
-| `USER.md` | Info about you — name, preferences, language |
-| `MEMORY.md` | Long-term memory — things the bot should always remember |
-| `HEARTBEAT.md` | Task list the bot checks periodically and acts on autonomously |
-| `cron.json` | Scheduled jobs — recurring or one-shot tasks created by the AI |
-| `2026-02-05.md` | Daily notes — what happened today |
-| `tg_12345.jsonl` | Chat history — your conversation with the bot |
+| File             | What it is                                                     |
+| ---------------- | -------------------------------------------------------------- |
+| `SOUL.md`        | The bot's personality — edit this to change how it behaves     |
+| `USER.md`        | Info about you — name, preferences, language                   |
+| `MEMORY.md`      | Long-term memory — things the bot should always remember       |
+| `HEARTBEAT.md`   | Task list the bot checks periodically and acts on autonomously |
+| `cron.json`      | Scheduled jobs — recurring or one-shot tasks created by the AI |
+| `2026-02-05.md`  | Daily notes — what happened today                              |
+| `tg_12345.jsonl` | Chat history — your conversation with the bot                  |
 
 ## Tools
 
 MimiClaw supports tool calling for both Anthropic and OpenAI — the LLM can call tools during a conversation and loop until the task is done (ReAct pattern).
 
-| Tool | Description |
-|------|-------------|
-| `web_search` | Search the web via Tavily (preferred) or Brave for current information |
-| `get_current_time` | Fetch current date/time via HTTP and set the system clock |
-| `cron_add` | Schedule a recurring or one-shot task (the LLM creates cron jobs on its own) |
-| `cron_list` | List all scheduled cron jobs |
-| `cron_remove` | Remove a cron job by ID |
+| Tool               | Description                                                                  |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `web_search`       | Search the web via Tavily (preferred) or Brave for current information       |
+| `get_current_time` | Fetch current date/time via HTTP and set the system clock                    |
+| `cron_add`         | Schedule a recurring or one-shot task (the LLM creates cron jobs on its own) |
+| `cron_list`        | List all scheduled cron jobs                                                 |
+| `cron_remove`      | Remove a cron job by ID                                                      |
 
 To enable web search, set a [Tavily API key](https://app.tavily.com/home) via `MIMI_SECRET_TAVILY_KEY` (preferred), or a [Brave Search API key](https://brave.com/search/api/) via `MIMI_SECRET_SEARCH_KEY` in `mimi_secrets.h`.
 
@@ -280,10 +280,10 @@ This turns MimiClaw into a proactive assistant — write tasks to `HEARTBEAT.md`
 - **OTA updates** — flash new firmware over WiFi, no USB needed
 - **Dual-core** — network I/O and AI processing run on separate CPU cores
 - **HTTP proxy** — CONNECT tunnel support for restricted networks
-- **Multi-provider** — supports both Anthropic (Claude) and OpenAI (GPT), switchable at runtime
+- **Multi-provider** — supports Anthropic (Claude), OpenAI (GPT), Qwen, and Gemini, switchable at runtime
 - **Cron scheduler** — the AI can schedule its own recurring and one-shot tasks, persisted across reboots
 - **Heartbeat** — periodically checks a task file and prompts the AI to act autonomously
-- **Tool use** — ReAct agent loop with tool calling for both providers
+- **Tool use** — ReAct agent loop with tool calling for all supported providers
 
 ## For Developers
 
