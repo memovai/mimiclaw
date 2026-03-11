@@ -699,7 +699,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model_id);
-    if (llm_protocol_is_openai()) {
+    if (strncasecmp(s_model_id, "gpt-5", 5) == 0 || strncasecmp(s_model_id, "o1", 2) == 0) {
         cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
     } else {
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
