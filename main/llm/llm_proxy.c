@@ -288,7 +288,15 @@ static esp_err_t llm_parse_api_base(const char *api_base) {
     const char *host_end = colon ? colon : (slash ? slash : p + strlen(p));
     snprintf(s_api_host, sizeof(s_api_host), "%.*s", (int)(host_end - p), p);
 
-    if (colon) s_api_port = (uint16_t)strtol(colon + 1, NULL, 10);
+    if (colon) {
+        char *endptr;
+        long port = strtol(colon + 1, &endptr, 10);
+        if (endptr != colon + 1 && (*endptr == '\0' || *endptr == '/') &&
+            port >= 1 && port <= 65535) {
+            s_api_port = (uint16_t)port;
+        }
+        /* If port parsing fails, keep the default port (443 for HTTPS, 80 for HTTP) */
+    }
 
     s_api_base_path[0] = '\0';
     if (slash) {
