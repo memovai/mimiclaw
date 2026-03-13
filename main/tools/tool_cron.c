@@ -66,16 +66,21 @@ esp_err_t tool_cron_add_execute(const char *input_json, char *output, size_t out
         job.delete_after_run = false;
     } else if (strcmp(schedule_type, "at") == 0) {
         job.kind = CRON_KIND_AT;
-        cJSON *at_epoch = cJSON_GetObjectItem(root, "at_epoch");
-        if (!at_epoch || !cJSON_IsNumber(at_epoch)) {
-            snprintf(output, output_size, "Error: 'at' schedule requires 'at_epoch' (unix timestamp)");
-            cJSON_Delete(root);
-            return ESP_ERR_INVALID_ARG;
+        time_t now = time(NULL);
+        cJSON *delay_s = cJSON_GetObjectItem(root, "delay_s");
+        if (delay_s && cJSON_IsNumber(delay_s) && delay_s->valuedouble > 0) {
+            job.at_epoch = (int64_t)now + (int64_t)delay_s->valuedouble;
+        } else {
+            cJSON *at_epoch = cJSON_GetObjectItem(root, "at_epoch");
+            if (!at_epoch || !cJSON_IsNumber(at_epoch)) {
+                snprintf(output, output_size, "Error: 'at' schedule requires 'at_epoch' (unix timestamp) or positive 'delay_s'");
+                cJSON_Delete(root);
+                return ESP_ERR_INVALID_ARG;
+            }
+            job.at_epoch = (int64_t)at_epoch->valuedouble;
         }
-        job.at_epoch = (int64_t)at_epoch->valuedouble;
 
         /* Check if already in the past */
-        time_t now = time(NULL);
         if (job.at_epoch <= now) {
             snprintf(output, output_size, "Error: at_epoch %lld is in the past (now=%lld)",
                      (long long)job.at_epoch, (long long)now);

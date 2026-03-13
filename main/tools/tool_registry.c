@@ -135,14 +135,15 @@ esp_err_t tool_registry_init(void)
     /* Register cron_add */
     mimi_tool_t ca = {
         .name = "cron_add",
-        .description = "Schedule a recurring or one-shot task. The message will trigger an agent turn when the job fires.",
+        .description = "Schedule a recurring or one-shot task. For relative reminders (e.g. 'in 2 minutes'), prefer delay_s to avoid timestamp math. The message will trigger an agent turn when the job fires.",
         .input_schema_json =
             "{\"type\":\"object\","
             "\"properties\":{"
             "\"name\":{\"type\":\"string\",\"description\":\"Short name for the job\"},"
             "\"schedule_type\":{\"type\":\"string\",\"description\":\"'every' for recurring interval or 'at' for one-shot at a unix timestamp\"},"
             "\"interval_s\":{\"type\":\"integer\",\"description\":\"Interval in seconds (required for 'every')\"},"
-            "\"at_epoch\":{\"type\":\"integer\",\"description\":\"Unix timestamp to fire at (required for 'at')\"},"
+            "\"at_epoch\":{\"type\":\"integer\",\"description\":\"Unix timestamp to fire at (for 'at'). Prefer delay_s for relative reminders.\"},"
+            "\"delay_s\":{\"type\":\"integer\",\"description\":\"Delay in seconds from now (preferred for 'at' when user says 'in N minutes')\"},"
             "\"message\":{\"type\":\"string\",\"description\":\"Message to inject when the job fires, triggering an agent turn\"},"
             "\"channel\":{\"type\":\"string\",\"description\":\"Optional reply channel (e.g. 'telegram'). If omitted, current turn channel is used when available\"},"
             "\"chat_id\":{\"type\":\"string\",\"description\":\"Optional reply chat_id. Required when channel='telegram'. If omitted during a Telegram turn, current chat_id is used\"}"

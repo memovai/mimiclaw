@@ -22,11 +22,63 @@
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "driver/i2s_std.h"
+#include "driver/i2s_common.h"
 
 #include "cJSON.h"
 #include "mbedtls/base64.h"
 
 static const char *TAG = "voice";
+
+/*
+ * I2S timing / slot style selection:
+ *   0: Philips (I2S, 1-bit delay after WS edge)
+ *   1: MSB (left-justified, no 1-bit delay)
+ *   2: PCM (short frame sync, ws_width=1, ws_pol=true)
+ *
+ * Many DAC/codec parts are sensitive to this. If your audio sounds like loud
+ * "沙沙" noise but speech is partially recognizable, this is a prime suspect.
+ */
+#ifndef MIMI_VOICE_I2S_STD_SLOT_STYLE
+#define MIMI_VOICE_I2S_STD_SLOT_STYLE 0
+#endif
+
+#ifndef MIMI_VOICE_I2S_DMA_DESC_NUM
+#define MIMI_VOICE_I2S_DMA_DESC_NUM 6
+#endif
+
+#ifndef MIMI_VOICE_I2S_DMA_FRAME_NUM
+#define MIMI_VOICE_I2S_DMA_FRAME_NUM 240
+#endif
+
+#ifndef MIMI_VOICE_TX_SILENCE_TAIL_MS
+#define MIMI_VOICE_TX_SILENCE_TAIL_MS 400
+#endif
+
+#define MIMI_VOICE_TX_BYTES_PER_FRAME (2U * sizeof(int32_t))
+#define MIMI_VOICE_TX_DMA_TOTAL_BYTES \
+    ((uint32_t)MIMI_VOICE_I2S_DMA_DESC_NUM * (uint32_t)MIMI_VOICE_I2S_DMA_FRAME_NUM * (uint32_t)MIMI_VOICE_TX_BYTES_PER_FRAME)
+
+#if MIMI_VOICE_I2S_STD_SLOT_STYLE == 1
+#define MIMI_VOICE_I2S_SLOT_DEFAULT_CONFIG(bits, mono_or_stereo) \
+    I2S_STD_MSB_SLOT_DEFAULT_CONFIG(bits, mono_or_stereo)
+#elif MIMI_VOICE_I2S_STD_SLOT_STYLE == 2
+#define MIMI_VOICE_I2S_SLOT_DEFAULT_CONFIG(bits, mono_or_stereo) \
+    I2S_STD_PCM_SLOT_DEFAULT_CONFIG(bits, mono_or_stereo)
+#else
+#define MIMI_VOICE_I2S_SLOT_DEFAULT_CONFIG(bits, mono_or_stereo) \
+    I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bits, mono_or_stereo)
+#endif
+
+static const char *i2s_slot_style_str(void)
+{
+#if MIMI_VOICE_I2S_STD_SLOT_STYLE == 1
+    return "MSB";
+#elif MIMI_VOICE_I2S_STD_SLOT_STYLE == 2
+    return "PCM";
+#else
+    return "PHILIPS";
+#endif
+}
 
 /* =========================
  * Fallback config defaults
@@ -101,11 +153,16 @@ static const char *TAG = "voice";
 #endif
 
 #ifndef MIMI_SECRET_TTS_LANGUAGE
-#define MIMI_SECRET_TTS_LANGUAGE          "Chinese"
+#define MIMI_SECRET_TTS_LANGUAGE          "English"
 #endif
 
 #ifndef MIMI_SECRET_API_KEY
 #define MIMI_SECRET_API_KEY               ""
+#endif
+
+/* TTS text constraints (can override in mimi_secrets.h) */
+#ifndef MIMI_VOICE_TTS_MAX_CHARS
+#define MIMI_VOICE_TTS_MAX_CHARS          140
 #endif
 
 #ifndef MIMI_VOICE_I2S_PORT
@@ -201,7 +258,7 @@ static const char *tts_voice(void)
 
 static const char *tts_language(void)
 {
-    return (MIMI_SECRET_TTS_LANGUAGE[0] != '\0') ? MIMI_SECRET_TTS_LANGUAGE : "Chinese";
+    return (MIMI_SECRET_TTS_LANGUAGE[0] != '\0') ? MIMI_SECRET_TTS_LANGUAGE : "English";
 }
 
 /* =========================
@@ -318,6 +375,241 @@ static esp_err_t http_get_binary(const char *url, http_resp_t *resp, int *http_s
 /* =========================
  * Audio helpers
  * ========================= */
+
+static void *malloc_prefer_spiram(size_t bytes)
+{
+    if (bytes == 0) {
+        return NULL;
+    }
+
+    void *p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+    if (p) {
+        return p;
+    }
+    return malloc(bytes);
+}
+
+static bool utf8_is_continuation_byte(uint8_t b)
+{
+    return (b & 0xC0U) == 0x80U;
+}
+
+static bool utf8_starts_with(const char *s, size_t i, size_t len, const char *lit)
+{
+    size_t lit_len = strlen(lit);
+    if (i + lit_len > len) {
+        return false;
+    }
+    return memcmp(s + i, lit, lit_len) == 0;
+}
+
+static bool is_speech_cut_punct(const char *s, size_t i, size_t len)
+{
+    const uint8_t b = (uint8_t)s[i];
+    if (b == '\n' || b == '\r') {
+        return true;
+    }
+    if (b == '.' || b == '!' || b == '?' || b == ',' || b == ';' || b == ':') {
+        return true;
+    }
+
+    /* Common CJK punctuation in UTF-8 */
+    if (utf8_starts_with(s, i, len, "。") ||
+        utf8_starts_with(s, i, len, "！") ||
+        utf8_starts_with(s, i, len, "？") ||
+        utf8_starts_with(s, i, len, "，") ||
+        utf8_starts_with(s, i, len, "；") ||
+        utf8_starts_with(s, i, len, "：") ||
+        utf8_starts_with(s, i, len, "、")) {
+        return true;
+    }
+
+    return false;
+}
+
+static size_t utf8_truncate_for_tts(const char *text, size_t max_chars, size_t *out_char_count, bool *out_truncated)
+{
+    if (!text || max_chars == 0) {
+        if (out_char_count) *out_char_count = 0;
+        if (out_truncated) *out_truncated = false;
+        return 0;
+    }
+
+    const size_t len = strlen(text);
+    size_t char_count = 0;
+    size_t last_punct_cut = 0;
+    size_t i = 0;
+
+    while (i < len) {
+        if (char_count >= max_chars) {
+            break;
+        }
+
+        if (!utf8_is_continuation_byte((uint8_t)text[i])) {
+            char_count++;
+            if (is_speech_cut_punct(text, i, len)) {
+                /* Cut after this codepoint (best-effort) */
+                size_t j = i + 1;
+                while (j < len && utf8_is_continuation_byte((uint8_t)text[j])) {
+                    j++;
+                }
+                last_punct_cut = j;
+            }
+        }
+        i++;
+    }
+
+    if (out_char_count) {
+        *out_char_count = char_count;
+    }
+
+    if (i >= len) {
+        if (out_truncated) *out_truncated = false;
+        return len;
+    }
+
+    /* Prefer cutting at punctuation, but avoid cutting too early */
+    size_t cut = i;
+    if (last_punct_cut > 0) {
+        const size_t min_reasonable = (max_chars >= 20) ? (max_chars / 2) : 0;
+        if (last_punct_cut >= min_reasonable) {
+            cut = last_punct_cut;
+        }
+    }
+
+    while (cut > 0 && utf8_is_continuation_byte((uint8_t)text[cut])) {
+        cut--;
+    }
+
+    if (out_truncated) *out_truncated = true;
+    return cut;
+}
+
+static char *voice_build_tts_text(const char *text)
+{
+    if (!text) {
+        return NULL;
+    }
+
+    size_t char_count = 0;
+    bool truncated = false;
+    size_t cut_bytes = utf8_truncate_for_tts(text, MIMI_VOICE_TTS_MAX_CHARS, &char_count, &truncated);
+
+    if (!truncated) {
+        return NULL; /* caller can use original text */
+    }
+
+    char *out = (char *)malloc(cut_bytes + 1);
+    if (!out) {
+        return NULL;
+    }
+    memcpy(out, text, cut_bytes);
+    out[cut_bytes] = '\0';
+
+    ESP_LOGW(TAG, "TTS text truncated: max=%u chars, cut_bytes=%u", (unsigned)MIMI_VOICE_TTS_MAX_CHARS, (unsigned)cut_bytes);
+    return out;
+}
+
+static int16_t fir5_s16_at_clamped(const int16_t *src, size_t src_samples, size_t idx)
+{
+    if (!src || src_samples == 0) {
+        return 0;
+    }
+
+    size_t i0 = (idx >= 2) ? (idx - 2) : 0;
+    size_t i1 = (idx >= 1) ? (idx - 1) : 0;
+    size_t i2 = idx;
+    if (i2 >= src_samples) i2 = src_samples - 1;
+    size_t i3 = (idx + 1 < src_samples) ? (idx + 1) : (src_samples - 1);
+    size_t i4 = (idx + 2 < src_samples) ? (idx + 2) : (src_samples - 1);
+
+    int32_t acc =
+        (int32_t)src[i0] * 1 +
+        (int32_t)src[i1] * 4 +
+        (int32_t)src[i2] * 6 +
+        (int32_t)src[i3] * 4 +
+        (int32_t)src[i4] * 1;
+
+    acc = acc / 16;
+    if (acc > INT16_MAX) acc = INT16_MAX;
+    if (acc < INT16_MIN) acc = INT16_MIN;
+    return (int16_t)acc;
+}
+
+static esp_err_t i2s_tx_write_silence_ms(uint32_t ms)
+{
+    if (!s_i2s_ready || !s_tx_chan || ms == 0) {
+        return ESP_OK;
+    }
+
+    uint64_t frames_total = ((uint64_t)MIMI_VOICE_SAMPLE_RATE * (uint64_t)ms) / 1000ULL;
+    while (frames_total > 0) {
+        const size_t frames_chunk = (frames_total > 256) ? 256 : (size_t)frames_total;
+        int32_t zeros[256 * 2] = {0};
+
+        const uint8_t *p = (const uint8_t *)zeros;
+        size_t bytes_total = frames_chunk * 2 * sizeof(int32_t);
+        size_t bytes_sent = 0;
+
+        while (bytes_sent < bytes_total) {
+            size_t written = 0;
+            esp_err_t err = i2s_channel_write(s_tx_chan,
+                                              p + bytes_sent,
+                                              bytes_total - bytes_sent,
+                                              &written,
+                                              pdMS_TO_TICKS(1000));
+            if (err != ESP_OK) {
+                return err;
+            }
+            if (written == 0) {
+                return ESP_FAIL;
+            }
+            bytes_sent += written;
+        }
+
+        frames_total -= frames_chunk;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t i2s_tx_overwrite_dma_with_zeros(void)
+{
+    if (!s_i2s_ready || !s_tx_chan) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint32_t remaining = MIMI_VOICE_TX_DMA_TOTAL_BYTES;
+    while (remaining > 0) {
+        int32_t zeros[256 * 2] = {0};
+        size_t chunk = sizeof(zeros);
+        if (chunk > remaining) {
+            chunk = remaining;
+        }
+
+        const uint8_t *p = (const uint8_t *)zeros;
+        size_t sent = 0;
+        while (sent < chunk) {
+            size_t written = 0;
+            esp_err_t err = i2s_channel_write(s_tx_chan,
+                                              p + sent,
+                                              chunk - sent,
+                                              &written,
+                                              pdMS_TO_TICKS(1000));
+            if (err != ESP_OK) {
+                return err;
+            }
+            if (written == 0) {
+                return ESP_FAIL;
+            }
+            sent += written;
+        }
+
+        remaining -= (uint32_t)chunk;
+    }
+
+    return ESP_OK;
+}
 
 static void pcm_s32_stereo_to_s16_mono(const uint8_t *src, size_t src_len, int16_t *dst, size_t *out_samples)
 {
@@ -622,7 +914,16 @@ static esp_err_t i2s_init_xvf3800(void)
 {
     esp_err_t err;
 
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG((i2s_port_t)MIMI_VOICE_I2S_PORT, I2S_ROLE_MASTER);
+    i2s_chan_config_t chan_cfg = {
+        .id = (i2s_port_t)MIMI_VOICE_I2S_PORT,
+        .role = I2S_ROLE_MASTER,
+        .dma_desc_num = MIMI_VOICE_I2S_DMA_DESC_NUM,
+        .dma_frame_num = MIMI_VOICE_I2S_DMA_FRAME_NUM,
+        .auto_clear_after_cb = false,
+        .auto_clear_before_cb = false,
+        .allow_pd = false,
+        .intr_priority = 0,
+    };
 
     err = i2s_new_channel(&chan_cfg, &s_tx_chan, &s_rx_chan);
     if (err != ESP_OK) {
@@ -649,7 +950,7 @@ static esp_err_t i2s_init_xvf3800(void)
 
     i2s_std_config_t tx_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(MIMI_VOICE_SAMPLE_RATE),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = MIMI_VOICE_I2S_BCLK,
@@ -676,6 +977,17 @@ static esp_err_t i2s_init_xvf3800(void)
         return err;
     }
 
+    /* Seed TX DMA with silence, otherwise some DAC/amps output "咚咚/沙沙" due to
+     * undefined initial DMA content or repeating last buffer when idle.
+     *
+     * Only allowed before enabling the channel.
+     */
+    {
+        int32_t zeros[128 * 2] = {0};
+        size_t loaded = 0;
+        (void)i2s_channel_preload_data(s_tx_chan, zeros, sizeof(zeros), &loaded);
+    }
+
     err = i2s_channel_enable(s_rx_chan);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "i2s rx enable failed: %s", esp_err_to_name(err));
@@ -689,8 +1001,9 @@ static esp_err_t i2s_init_xvf3800(void)
     }
 
     s_i2s_ready = true;
-    ESP_LOGI(TAG, "I2S ready: %dHz stereo s32 in / mono s16 out",
-             MIMI_VOICE_SAMPLE_RATE);
+    ESP_LOGI(TAG, "I2S ready: %dHz stereo s32 in / stereo s32 out (%s timing)",
+             MIMI_VOICE_SAMPLE_RATE,
+             i2s_slot_style_str());
     return ESP_OK;
 }
 static int16_t *resample_s16_mono_linear(const int16_t *src,
@@ -704,7 +1017,7 @@ static int16_t *resample_s16_mono_linear(const int16_t *src,
     }
 
     if (src_rate == dst_rate) {
-        int16_t *copy = malloc(src_samples * sizeof(int16_t));
+        int16_t *copy = (int16_t *)malloc_prefer_spiram(src_samples * sizeof(int16_t));
         if (!copy) {
             return NULL;
         }
@@ -713,16 +1026,25 @@ static int16_t *resample_s16_mono_linear(const int16_t *src,
         return copy;
     }
 
+    const bool is_downsampling = src_rate > dst_rate;
+
     size_t dst_samples = (size_t)(((uint64_t)src_samples * dst_rate) / src_rate);
     if (dst_samples == 0) {
         return NULL;
     }
 
-    int16_t *dst = malloc(dst_samples * sizeof(int16_t));
+    int16_t *dst = (int16_t *)malloc_prefer_spiram(dst_samples * sizeof(int16_t));
     if (!dst) {
         return NULL;
     }
 
+    /* When downsampling (e.g. 24k -> 16k), naive linear interpolation tends to fold
+     * high-frequency content above the new Nyquist into the audible band (aliasing),
+     * often perceived as "沙沙" on sibilants/background.
+     *
+     * Apply a tiny 5-tap low-pass FIR [1,4,6,4,1]/16 on the source indices we touch.
+     * This is cheap and improves subjective quality significantly without pulling in DSP deps.
+     */
     for (size_t i = 0; i < dst_samples; i++) {
         float src_pos = ((float)i * (float)src_rate) / (float)dst_rate;
         size_t idx = (size_t)src_pos;
@@ -731,8 +1053,8 @@ static int16_t *resample_s16_mono_linear(const int16_t *src,
         if (idx >= src_samples - 1) {
             dst[i] = src[src_samples - 1];
         } else {
-            float a = (float)src[idx];
-            float b = (float)src[idx + 1];
+            float a = (float)(is_downsampling ? fir5_s16_at_clamped(src, src_samples, idx) : src[idx]);
+            float b = (float)(is_downsampling ? fir5_s16_at_clamped(src, src_samples, idx + 1) : src[idx + 1]);
             float v = a + (b - a) * frac;
 
             if (v > 32767.0f) v = 32767.0f;
@@ -774,43 +1096,51 @@ static esp_err_t i2s_play_wav_pcm16(const uint8_t *wav, size_t wav_len)
     const int16_t *src16 = (const int16_t *)pcm;
     size_t src_samples_total = pcm_len / sizeof(int16_t);
 
-    int16_t *mono_buf = NULL;
+    const int16_t *mono_src = NULL;
+    int16_t *mono_owned = NULL;
     size_t mono_samples = 0;
 
     if (fmt.channels == 1) {
+        mono_src = src16;
         mono_samples = src_samples_total;
-        mono_buf = malloc(mono_samples * sizeof(int16_t));
-        if (!mono_buf) {
-            return ESP_ERR_NO_MEM;
-        }
-        memcpy(mono_buf, src16, mono_samples * sizeof(int16_t));
     } else if (fmt.channels == 2) {
         mono_samples = src_samples_total / 2;
-        mono_buf = malloc(mono_samples * sizeof(int16_t));
-        if (!mono_buf) {
+        mono_owned = (int16_t *)malloc_prefer_spiram(mono_samples * sizeof(int16_t));
+        if (!mono_owned) {
             return ESP_ERR_NO_MEM;
         }
 
         for (size_t i = 0, j = 0; j < mono_samples; i += 2, j++) {
             int32_t v = ((int32_t)src16[i] + (int32_t)src16[i + 1]) / 2;
-            mono_buf[j] = (int16_t)v;
+            mono_owned[j] = (int16_t)v;
         }
+        mono_src = mono_owned;
     } else {
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    const int16_t *play_src = NULL;
+    int16_t *play_owned = NULL;
     size_t play_samples = 0;
-    int16_t *play_buf = resample_s16_mono_linear(
-        mono_buf,
-        mono_samples,
-        fmt.sample_rate,
-        MIMI_VOICE_SAMPLE_RATE,
-        &play_samples
-    );
-    free(mono_buf);
 
-    if (!play_buf || play_samples == 0) {
-        return ESP_ERR_NO_MEM;
+    if (fmt.sample_rate == MIMI_VOICE_SAMPLE_RATE) {
+        play_src = mono_src;
+        play_samples = mono_samples;
+    } else {
+        play_owned = resample_s16_mono_linear(
+            mono_src,
+            mono_samples,
+            fmt.sample_rate,
+            MIMI_VOICE_SAMPLE_RATE,
+            &play_samples
+        );
+        free(mono_owned);
+        mono_owned = NULL;
+
+        if (!play_owned || play_samples == 0) {
+            return ESP_ERR_NO_MEM;
+        }
+        play_src = play_owned;
     }
 
     ESP_LOGI(TAG, "Playback PCM: %u samples @ %u Hz (~%u ms)",
@@ -820,40 +1150,59 @@ static esp_err_t i2s_play_wav_pcm16(const uint8_t *wav, size_t wav_len)
 
     s_is_playing = true;
 
-    const uint8_t *play_bytes = (const uint8_t *)play_buf;
-    size_t total_bytes = play_samples * sizeof(int16_t);
-    size_t written_total = 0;
+    size_t frames_total = play_samples;
+    size_t frames_sent = 0;
 
-    while (written_total < total_bytes) {
-        size_t written = 0;
-        size_t chunk = total_bytes - written_total;
-        if (chunk > 2048) {
-            chunk = 2048;
+    while (frames_sent < frames_total) {
+        const size_t frames_chunk = (frames_total - frames_sent > 256) ? 256 : (frames_total - frames_sent);
+
+        int32_t tx_buf[256 * 2];
+        for (size_t i = 0; i < frames_chunk; i++) {
+            int16_t s16 = play_src[frames_sent + i];
+            int32_t s32 = ((int32_t)s16) << 16;
+            tx_buf[i * 2 + 0] = s32;
+            tx_buf[i * 2 + 1] = s32;
         }
 
-        err = i2s_channel_write(s_tx_chan,
-                                play_bytes + written_total,
-                                chunk,
-                                &written,
-                                pdMS_TO_TICKS(1000));
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "i2s write failed: %s", esp_err_to_name(err));
-            free(play_buf);
-            s_is_playing = false;
-            return err;
+        const uint8_t *p = (const uint8_t *)tx_buf;
+        size_t bytes_total = frames_chunk * 2 * sizeof(int32_t);
+        size_t bytes_sent = 0;
+
+        while (bytes_sent < bytes_total) {
+            size_t written = 0;
+            err = i2s_channel_write(s_tx_chan,
+                                    p + bytes_sent,
+                                    bytes_total - bytes_sent,
+                                    &written,
+                                    pdMS_TO_TICKS(1000));
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "i2s write failed: %s", esp_err_to_name(err));
+                free(play_owned);
+                free(mono_owned);
+                s_is_playing = false;
+                return err;
+            }
+            if (written == 0) {
+                ESP_LOGE(TAG, "i2s write returned 0 bytes");
+                free(play_owned);
+                free(mono_owned);
+                s_is_playing = false;
+                return ESP_FAIL;
+            }
+            bytes_sent += written;
         }
 
-        if (written == 0) {
-            ESP_LOGE(TAG, "i2s write returned 0 bytes");
-            free(play_buf);
-            s_is_playing = false;
-            return ESP_FAIL;
-        }
-
-        written_total += written;
+        frames_sent += frames_chunk;
     }
 
-    free(play_buf);
+    /* Leave a short silence tail so the TX engine doesn't keep repeating the last
+     * non-zero DMA buffer (often perceived as continuous "咚咚" when idle).
+     */
+    (void)i2s_tx_write_silence_ms(MIMI_VOICE_TX_SILENCE_TAIL_MS);
+    (void)i2s_tx_overwrite_dma_with_zeros();
+
+    free(play_owned);
+    free(mono_owned);
     s_is_playing = false;
     return ESP_OK;
 }
@@ -1021,7 +1370,7 @@ static esp_err_t tts_stream_play(const char *text)
                 wav_resp.buf + 8);
     }
 
-    if (wav_resp.len > 0 && strncmp(wav_resp.buf, "RIFF", 4) != 0) {
+    if (wav_resp.len >= 4 && memcmp(wav_resp.buf, "RIFF", 4) != 0) {
         ESP_LOGE(TAG, "TTS response is not WAV, preview: %.120s", wav_resp.buf);
     }
 
@@ -1060,6 +1409,8 @@ static void voice_capture_task(void *arg)
     bool in_speech = false;
     size_t total_frames = 0;
     size_t silence_frames = 0;
+    size_t start_frames = 0;
+    TickType_t cooldown_until = 0;
 
     /* Simple adaptive noise floor */
     uint32_t noise_floor = MIMI_VOICE_VAD_THRESHOLD / 2;
@@ -1074,6 +1425,12 @@ static void voice_capture_task(void *arg)
         if (s_is_playing) {
             /* Avoid self-trigger during playback */
             vTaskDelay(pdMS_TO_TICKS(MIMI_VOICE_FRAME_MS));
+            continue;
+        }
+
+        TickType_t now = xTaskGetTickCount();
+        if (cooldown_until != 0 && now < cooldown_until) {
+            vTaskDelay(cooldown_until - now);
             continue;
         }
 
@@ -1105,11 +1462,17 @@ static void voice_capture_task(void *arg)
 
         if (!in_speech) {
             if (!speech_now) {
+                start_frames = 0;
+                continue;
+            }
+            start_frames++;
+            if (start_frames < MIMI_VOICE_VAD_START_FRAMES) {
                 continue;
             }
             in_speech = true;
             total_frames = 0;
             silence_frames = 0;
+            start_frames = 0;
         }
 
         if (total_frames < max_frames) {
@@ -1133,9 +1496,10 @@ static void voice_capture_task(void *arg)
         in_speech = false;
 
         /* Ignore ultra-short bursts */
-        if (total_frames < 5) {
+        if (total_frames < MIMI_VOICE_VAD_MIN_FRAMES) {
             total_frames = 0;
             silence_frames = 0;
+            cooldown_until = xTaskGetTickCount() + pdMS_TO_TICKS(MIMI_VOICE_STT_COOLDOWN_MS);
             continue;
         }
 
@@ -1156,6 +1520,7 @@ static void voice_capture_task(void *arg)
 
         total_frames = 0;
         silence_frames = 0;
+        cooldown_until = xTaskGetTickCount() + pdMS_TO_TICKS(MIMI_VOICE_STT_COOLDOWN_MS);
     }
 }
 
@@ -1221,7 +1586,9 @@ esp_err_t voice_channel_speak_text(const char *text)
         return ESP_ERR_TIMEOUT;
     }
 
-    esp_err_t err = tts_stream_play(text);
+    char *tts_text = voice_build_tts_text(text);
+    esp_err_t err = tts_stream_play(tts_text ? tts_text : text);
+    free(tts_text);
 
     xSemaphoreGive(s_http_lock);
     return err;

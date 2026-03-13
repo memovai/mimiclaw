@@ -86,6 +86,30 @@ static void append_turn_context_prompt(char *prompt, size_t size, const mimi_msg
     if (n < 0 || (size_t)n >= (size - off)) {
         prompt[size - 1] = '\0';
     }
+
+    if (msg->channel[0] && strcmp(msg->channel, MIMI_CHAN_VOICE) == 0) {
+        off = strnlen(prompt, size - 1);
+        if (off >= size - 1) {
+            return;
+        }
+
+        n = snprintf(
+            prompt + off, size - off,
+            "\n## Voice Output Constraints\n"
+            "This reply will be converted to speech (TTS) and played on a small speaker.\n"
+            "- Use English, natural spoken style.\n"
+            "- Keep it short: keep playback within ~%d seconds.\n"
+            "- Structure: at most 2 sentences + 1 short follow-up question.\n"
+            "- Length: <= %d characters total.\n"
+            "- No markdown, no lists, no code blocks, no URLs.\n"
+            "- Avoid long explanations; if the answer is long, give a 1–2 sentence summary and ask if the user wants more.\n",
+            (int)MIMI_VOICE_TTS_MAX_SECONDS,
+            (int)MIMI_VOICE_LLM_MAX_CHARS);
+
+        if (n < 0 || (size_t)n >= (size - off)) {
+            prompt[size - 1] = '\0';
+        }
+    }
 }
 
 static char *patch_tool_input_with_context(const llm_tool_call_t *call, const mimi_msg_t *msg)

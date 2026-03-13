@@ -71,7 +71,7 @@
 #define MIMI_SECRET_TTS_MODEL       ""
 #endif
 #ifndef MIMI_SECRET_TTS_LANGUAGE
-#define MIMI_SECRET_TTS_LANGUAGE    "Chinese"
+#define MIMI_SECRET_TTS_LANGUAGE    "English"
 #endif
 
 /* Qwen voice API defaults (DashScope) */
@@ -94,37 +94,6 @@
 #define MIMI_TG_CARD_SHOW_MS         3000
 #define MIMI_TG_CARD_BODY_SCALE      3
 
-/* Voice (ReSpeaker XVF3800 over I2S) */
-#define MIMI_VOICE_ENABLED_DEFAULT    0
-#define MIMI_VOICE_CHAT_ID            "voice_local"
-#define MIMI_VOICE_SAMPLE_RATE        16000
-#define MIMI_VOICE_BITS_PER_SAMPLE    16
-#define MIMI_VOICE_FRAME_MS           20
-#define MIMI_VOICE_MAX_UTTERANCE_MS   10000
-#define MIMI_VOICE_SILENCE_END_MS     600
-#define MIMI_VOICE_VAD_THRESHOLD      700
-#define MIMI_VOICE_CAPTURE_STACK      (10 * 1024)
-#define MIMI_VOICE_PLAYBACK_STACK     (8 * 1024)
-#define MIMI_VOICE_TASK_PRIO          5
-#define MIMI_VOICE_CORE               0
-#define MIMI_VOICE_PLAYBACK_QUEUE_LEN 4
-/* Set valid board pins in mimi_secrets.h to enable audio I/O */
-#ifndef MIMI_VOICE_I2S_PORT
-#define MIMI_VOICE_I2S_PORT           0
-#endif
-#ifndef MIMI_VOICE_I2S_BCLK
-#define MIMI_VOICE_I2S_BCLK           (-1)
-#endif
-#ifndef MIMI_VOICE_I2S_WS
-#define MIMI_VOICE_I2S_WS             (-1)
-#endif
-#ifndef MIMI_VOICE_I2S_DIN
-#define MIMI_VOICE_I2S_DIN            (-1)
-#endif
-#ifndef MIMI_VOICE_I2S_DOUT
-#define MIMI_VOICE_I2S_DOUT           (-1)
-#endif
-
 /* Feishu Bot */
 #define MIMI_FEISHU_MAX_MSG_LEN          4096
 #define MIMI_FEISHU_POLL_STACK           (12 * 1024)
@@ -143,6 +112,40 @@
 #define MIMI_MAX_TOOL_CALLS          4
 #define MIMI_AGENT_SEND_WORKING_STATUS 1
 
+/* Voice UX (LLM -> TTS) */
+/* Rough speaking rate for Simplified Chinese TTS is often ~4–6 chars/sec depending on voice.
+    * Default limits aim to keep playback under ~20 seconds in typical conditions.
+    * Override these in mimi_secrets.h per your preferred voice/speed.
+    */
+#ifndef MIMI_VOICE_TTS_MAX_SECONDS
+#define MIMI_VOICE_TTS_MAX_SECONDS  20
+#endif
+
+#ifndef MIMI_VOICE_TTS_CHARS_PER_SEC
+#define MIMI_VOICE_TTS_CHARS_PER_SEC 7
+#endif
+
+#ifndef MIMI_VOICE_LLM_MAX_CHARS
+#define MIMI_VOICE_LLM_MAX_CHARS     (MIMI_VOICE_TTS_MAX_SECONDS * MIMI_VOICE_TTS_CHARS_PER_SEC)
+#endif
+
+#ifndef MIMI_VOICE_TTS_MAX_CHARS
+#define MIMI_VOICE_TTS_MAX_CHARS     (MIMI_VOICE_LLM_MAX_CHARS + 10)
+#endif
+
+/* Voice capture (VAD / STT trigger) */
+#ifndef MIMI_VOICE_VAD_START_FRAMES
+#define MIMI_VOICE_VAD_START_FRAMES  4   /* consecutive frames above threshold to enter speech */
+#endif
+
+#ifndef MIMI_VOICE_VAD_MIN_FRAMES
+#define MIMI_VOICE_VAD_MIN_FRAMES    50  /* minimum utterance frames before sending to STT */
+#endif
+
+#ifndef MIMI_VOICE_STT_COOLDOWN_MS
+#define MIMI_VOICE_STT_COOLDOWN_MS   2000 /* cooldown after an STT attempt to reduce re-trigger */
+#endif
+
 /* Timezone (POSIX TZ format) */
 #define MIMI_TIMEZONE                "PST8PDT,M3.2.0,M11.1.0"
 
@@ -150,8 +153,8 @@
 #define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
 #define MIMI_LLM_PROVIDER_DEFAULT    "anthropic"
 #define MIMI_LLM_MAX_TOKENS          4096
-#define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
-#define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+#define MIMI_LLM_API_BASE_ANTHROPIC  "https://api.anthropic.com/v1"
+#define MIMI_LLM_API_BASE_OPENAI     "https://api.openai.com/v1"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
@@ -162,6 +165,22 @@
 #define MIMI_OUTBOUND_STACK          (12 * 1024)
 #define MIMI_OUTBOUND_PRIO           5
 #define MIMI_OUTBOUND_CORE           0
+
+/* Voice speak task (TTS download + resample + playback) */
+#ifndef MIMI_VOICE_SPEAK_STACK
+#define MIMI_VOICE_SPEAK_STACK       (12 * 1024)
+#endif
+#ifndef MIMI_VOICE_SPEAK_PRIO
+#define MIMI_VOICE_SPEAK_PRIO        5
+#endif
+#ifndef MIMI_VOICE_SPEAK_CORE
+#define MIMI_VOICE_SPEAK_CORE        1
+#endif
+
+/* WiFi reliability */
+#ifndef MIMI_WIFI_DISABLE_POWERSAVE
+#define MIMI_WIFI_DISABLE_POWERSAVE  1
+#endif
 
 /* Memory / SPIFFS */
 #define MIMI_SPIFFS_BASE             "/spiffs"
@@ -208,8 +227,8 @@
 #define MIMI_NVS_KEY_FEISHU_APP_ID   "app_id"
 #define MIMI_NVS_KEY_FEISHU_APP_SECRET "app_secret"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
+#define MIMI_NVS_KEY_API_BASE        "api_base"
 #define MIMI_NVS_KEY_TAVILY_KEY      "tavily_key"
-#define MIMI_NVS_KEY_API_URL         "api_url"
 #define MIMI_NVS_KEY_MODEL           "model"
 #define MIMI_NVS_KEY_PROVIDER        "provider"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"

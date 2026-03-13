@@ -111,11 +111,11 @@ static void outbound_dispatch_task(void *arg)
                 BaseType_t ok = xTaskCreatePinnedToCore(
                     voice_speak_task,
                     "voice_speak",
-                    12 * 1024,
+                    MIMI_VOICE_SPEAK_STACK,
                     copy,
-                    5,
+                    MIMI_VOICE_SPEAK_PRIO,
                     NULL,
-                    0
+                    MIMI_VOICE_SPEAK_CORE
                 );
                 if (ok != pdPASS) {
                     ESP_LOGW(TAG, "Failed to create voice_speak task");
