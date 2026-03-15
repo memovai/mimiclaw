@@ -32,7 +32,7 @@ static const char ONBOARD_HTML[] =
 "</style></head><body>"
 "<h1>MimiClaw Setup</h1>"
 "<p style='text-align:center;color:#666;font-size:.9em;margin-bottom:12px'>"
-"This local portal remains available at 192.168.4.1 for later updates."
+"This local portal remains available on the MimiClaw setup WiFi for later updates."
 "</p>"
 
 /* WiFi section (expanded by default) */

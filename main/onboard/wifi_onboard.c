@@ -18,10 +18,66 @@
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "lwip/ip4_addr.h"
 
 static const char *TAG = "onboard";
 static httpd_handle_t s_server = NULL;
 static bool s_captive_mode = false;
+static esp_netif_ip_info_t s_onboard_ap_ip_info;
+
+typedef struct {
+    uint8_t a;
+    uint8_t b;
+    uint8_t c;
+    uint8_t d;
+} onboard_ap_ip_candidate_t;
+
+static const onboard_ap_ip_candidate_t ONBOARD_AP_IP_CANDIDATES[] = {
+    {192, 168, 50, 1},
+    {192, 168, 60, 1},
+    {10, 10, 10, 1},
+    {192, 168, 4, 1},
+};
+
+static void make_ap_ip_info(const onboard_ap_ip_candidate_t *candidate,
+                            esp_netif_ip_info_t *ip_info)
+{
+    memset(ip_info, 0, sizeof(*ip_info));
+    IP4_ADDR(&ip_info->ip, candidate->a, candidate->b, candidate->c, candidate->d);
+    ip_info->gw = ip_info->ip;
+    IP4_ADDR(&ip_info->netmask, 255, 255, 255, 0);
+}
+
+static bool ip_same_subnet(const esp_ip4_addr_t *a,
+                           const esp_ip4_addr_t *b,
+                           const esp_ip4_addr_t *netmask)
+{
+    return (a->addr & netmask->addr) == (b->addr & netmask->addr);
+}
+
+static void choose_onboard_ap_ip(bool keep_sta, esp_netif_ip_info_t *ip_info)
+{
+    esp_netif_ip_info_t sta_ip_info = {0};
+    bool have_sta_ip = false;
+
+    if (keep_sta) {
+        esp_netif_t *sta_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        have_sta_ip = sta_netif &&
+                      esp_netif_get_ip_info(sta_netif, &sta_ip_info) == ESP_OK &&
+                      sta_ip_info.ip.addr != 0 &&
+                      sta_ip_info.netmask.addr != 0;
+    }
+
+    for (size_t i = 0; i < sizeof(ONBOARD_AP_IP_CANDIDATES) / sizeof(ONBOARD_AP_IP_CANDIDATES[0]); i++) {
+        make_ap_ip_info(&ONBOARD_AP_IP_CANDIDATES[i], ip_info);
+        if (!have_sta_ip || !ip_same_subnet(&ip_info->ip, &sta_ip_info.ip, &sta_ip_info.netmask)) {
+            return;
+        }
+    }
+
+    make_ap_ip_info(&ONBOARD_AP_IP_CANDIDATES[0], ip_info);
+    ESP_LOGW(TAG, "All onboarding AP candidates overlap STA subnet; using " IPSTR, IP2STR(&ip_info->ip));
+}
 
 static void json_add_effective_config(cJSON *root, const char *json_key,
                                       const char *ns, const char *nvs_key,
@@ -72,7 +128,7 @@ static void json_add_effective_config_u16(cJSON *root, const char *json_key,
 
 /* ── DNS hijack ─────────────────────────────────────────────────── */
 
-/* Minimal DNS response: always answer 192.168.4.1 */
+/* Minimal DNS response: always answer onboarding AP IP */
 static void dns_hijack_task(void *arg)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -124,7 +180,7 @@ static void dns_hijack_task(void *arg)
         resp[6] = 0x00;
         resp[7] = 0x01;
 
-        /* Append answer: pointer to name + A record with 192.168.4.1 */
+        /* Append answer: pointer to name + A record with onboarding AP IP */
         int off = len;
         resp[off++] = 0xC0;  /* pointer */
         resp[off++] = 0x0C;  /* offset to question name */
@@ -133,8 +189,10 @@ static void dns_hijack_task(void *arg)
         resp[off++] = 0x00; resp[off++] = 0x00;
         resp[off++] = 0x00; resp[off++] = 0x3C;  /* TTL = 60 */
         resp[off++] = 0x00; resp[off++] = 0x04;  /* data length = 4 */
-        resp[off++] = 192; resp[off++] = 168;
-        resp[off++] = 4;   resp[off++] = 1;
+        resp[off++] = esp_ip4_addr1(&s_onboard_ap_ip_info.ip);
+        resp[off++] = esp_ip4_addr2(&s_onboard_ap_ip_info.ip);
+        resp[off++] = esp_ip4_addr3(&s_onboard_ap_ip_info.ip);
+        resp[off++] = esp_ip4_addr4(&s_onboard_ap_ip_info.ip);
 
         sendto(sock, resp, off, 0,
                (struct sockaddr *)&client, client_len);
@@ -153,8 +211,10 @@ static esp_err_t http_get_root(httpd_req_t *req)
 /* Captive portal detection endpoints → redirect to root */
 static esp_err_t http_captive_redirect(httpd_req_t *req)
 {
+    char location[32];
+    snprintf(location, sizeof(location), "http://" IPSTR "/", IP2STR(&s_onboard_ap_ip_info.ip));
     httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_set_hdr(req, "Location", location);
     return httpd_resp_send(req, NULL, 0);
 }
 
@@ -388,6 +448,13 @@ static esp_err_t start_softap(bool keep_sta)
         ap_netif = esp_netif_create_default_wifi_ap();
     }
 
+    choose_onboard_ap_ip(keep_sta, &s_onboard_ap_ip_info);
+
+    /* Keep the onboarding AP subnet separate from the active STA subnet. */
+    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &s_onboard_ap_ip_info));
+    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
+
     /* APSTA lets the local config AP coexist with WiFi scanning/STA usage. */
     (void)keep_sta;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
@@ -409,6 +476,7 @@ static esp_err_t start_softap(bool keep_sta)
     }
 
     ESP_LOGI(TAG, "Soft AP started: %s (open)", ssid);
+    ESP_LOGI(TAG, "Soft AP address: " IPSTR, IP2STR(&s_onboard_ap_ip_info.ip));
     return ESP_OK;
 }
 
@@ -509,7 +577,7 @@ esp_err_t wifi_onboard_start(wifi_onboard_mode_t mode)
     httpd_handle_t server = start_http_server(captive);
     if (!server) return ESP_FAIL;
 
-    ESP_LOGI(TAG, "Connect to MimiClaw-XXXX WiFi, then open http://192.168.4.1");
+    ESP_LOGI(TAG, "Connect to MimiClaw-XXXX WiFi, then open http://" IPSTR, IP2STR(&s_onboard_ap_ip_info.ip));
 
     if (!captive) {
         ESP_LOGI(TAG, "Local admin portal stays available while STA is connected");
