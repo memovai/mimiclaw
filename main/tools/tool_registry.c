@@ -4,6 +4,7 @@
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
+#include "tools/tool_gpio.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -11,7 +12,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 12
+#define MAX_TOOLS 16
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -175,6 +176,43 @@ esp_err_t tool_registry_init(void)
         .execute = tool_cron_remove_execute,
     };
     register_tool(&cr);
+
+    /* Register GPIO tools */
+    tool_gpio_init();
+
+    mimi_tool_t gw = {
+        .name = "gpio_write",
+        .description = "Set a GPIO pin HIGH or LOW. Controls LEDs, relays, and other digital outputs.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"},"
+            "\"state\":{\"type\":\"integer\",\"description\":\"1 for HIGH, 0 for LOW\"}},"
+            "\"required\":[\"pin\",\"state\"]}",
+        .execute = tool_gpio_write_execute,
+    };
+    register_tool(&gw);
+
+    mimi_tool_t gr = {
+        .name = "gpio_read",
+        .description = "Read a GPIO pin state. Returns HIGH or LOW. Use for checking switches, sensors, and digital inputs.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"}},"
+            "\"required\":[\"pin\"]}",
+        .execute = tool_gpio_read_execute,
+    };
+    register_tool(&gr);
+
+    mimi_tool_t ga = {
+        .name = "gpio_read_all",
+        .description = "Read all allowed GPIO pin states in a single call. Returns each pin's HIGH/LOW state.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{},"
+            "\"required\":[]}",
+        .execute = tool_gpio_read_all_execute,
+    };
+    register_tool(&ga);
 
     build_tools_json();
 

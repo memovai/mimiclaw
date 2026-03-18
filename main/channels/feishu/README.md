@@ -5,7 +5,7 @@ This directory contains the Feishu bot integration for MimiClaw.
 ## Features
 
 - Send text messages to Feishu chats
-- Receive messages via webhook (HTTP event subscription)
+- Receive messages via WebSocket persistent connection (long-connection mode)
 - Automatic message chunking (4096 chars per message)
 - Tenant access token management with auto-refresh
 - Message deduplication
@@ -46,17 +46,17 @@ mimi> set_feishu_creds cli_xxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
    - `im:message` - Send and receive messages
    - `im:message:send_as_bot` - Send messages as bot
 4. Configure Event Subscription:
-   - Request URL: `http://<ESP32_IP>:18790/feishu/events`
+   - Set subscription mode to **Persistent connection** (长连接)
    - Subscribe to: `im.message.receive_v1`
-5. The ESP32 will auto-respond to the URL verification challenge
+5. The ESP32 will connect to Feishu automatically on boot
 
 ## Architecture
 
 ```
-Feishu Server
-    |
-    v  (HTTP POST /feishu/events)
-[ESP32 Webhook Server :18790]
+Feishu Server (wss://open.feishu.cn)
+    ^
+    |  (WebSocket persistent connection, ESP32 initiates)
+[feishu_ws_task]
     |
     v  (message_bus_push_inbound)
 [Message Bus] --> [Agent Loop] --> [Message Bus]
@@ -73,7 +73,7 @@ Feishu API
 | Function | Description |
 |----------|-------------|
 | `feishu_bot_init()` | Load credentials from NVS/build-time |
-| `feishu_bot_start()` | Start webhook HTTP server |
+| `feishu_bot_start()` | Start WebSocket persistent connection task |
 | `feishu_send_message(chat_id, text)` | Send text message |
 | `feishu_reply_message(message_id, text)` | Reply to a specific message |
 | `feishu_set_credentials(app_id, secret)` | Save credentials to NVS |
@@ -82,4 +82,4 @@ Feishu API
 
 - [Feishu Open Platform Docs](https://open.feishu.cn/document/home/index)
 - [Message API](https://open.feishu.cn/document/server-docs/im-v1/message/create)
-- [Event Subscription](https://open.feishu.cn/document/server-docs/event-subscription/event-subscription-guide)
+- [Long-connection Event Subscription](https://open.feishu.cn/document/server-docs/event-subscription/long-connection)

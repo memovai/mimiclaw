@@ -118,6 +118,9 @@
 #define MIMI_HEARTBEAT_FILE          MIMI_SPIFFS_BASE "/HEARTBEAT.md"
 #define MIMI_HEARTBEAT_INTERVAL_MS   (30 * 60 * 1000)
 
+/* GPIO */
+#define MIMI_GPIO_CONFIG_SECTION     1   /* enable GPIO tools */
+
 /* Skills */
 #define MIMI_SKILLS_PREFIX           MIMI_SPIFFS_BASE "/skills/"
 

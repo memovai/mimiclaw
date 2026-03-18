@@ -28,22 +28,24 @@ jobs:
           . $IDF_PATH/export.sh
           VERSION="${GITHUB_REF_NAME}"
 
-          # Generate merged firmware for single-command flashing
+          # Generate merged firmware for single-command flashing (includes SPIFFS)
           esptool.py --chip esp32s3 merge_bin \
             --flash_mode qio \
             --flash_size 16MB \
             --flash_freq 80m \
             -o "mimiclaw-full-${VERSION}.bin" \
-            0x0     build/bootloader/bootloader.bin \
-            0x8000  build/partition_table/partition-table.bin \
-            0xf000  build/ota_data_initial.bin \
-            0x20000 build/mimiclaw.bin
+            0x0      build/bootloader/bootloader.bin \
+            0x8000   build/partition_table/partition-table.bin \
+            0xf000   build/ota_data_initial.bin \
+            0x20000  build/mimiclaw.bin \
+            0x420000 build/spiffs.bin
 
           # Copy individual binaries with version suffix
           cp build/mimiclaw.bin              "mimiclaw-${VERSION}.bin"
           cp build/bootloader/bootloader.bin "bootloader-${VERSION}.bin"
           cp build/partition_table/partition-table.bin "partition-table-${VERSION}.bin"
           cp build/ota_data_initial.bin      "ota_data_initial-${VERSION}.bin"
+          cp build/spiffs.bin                "spiffs-${VERSION}.bin"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -64,10 +66,11 @@ jobs:
 
             ```bash
             esptool.py --chip esp32s3 -b 460800 write_flash \
-              0x0     bootloader-${{ github.ref_name }}.bin \
-              0x8000  partition-table-${{ github.ref_name }}.bin \
-              0xf000  ota_data_initial-${{ github.ref_name }}.bin \
-              0x20000 mimiclaw-${{ github.ref_name }}.bin
+              0x0      bootloader-${{ github.ref_name }}.bin \
+              0x8000   partition-table-${{ github.ref_name }}.bin \
+              0xf000   ota_data_initial-${{ github.ref_name }}.bin \
+              0x20000  mimiclaw-${{ github.ref_name }}.bin \
+              0x420000 spiffs-${{ github.ref_name }}.bin
             ```
 
             ### 3. OTA update (for devices already running MimiClaw)
@@ -90,3 +93,4 @@ jobs:
             bootloader-${{ github.ref_name }}.bin
             partition-table-${{ github.ref_name }}.bin
             ota_data_initial-${{ github.ref_name }}.bin
+            spiffs-${{ github.ref_name }}.bin

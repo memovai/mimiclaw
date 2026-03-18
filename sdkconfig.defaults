@@ -3,3 +3,6 @@
 
 # Network hostname
 CONFIG_LWIP_LOCAL_HOSTNAME="mimiclaw"
+
+# SPIFFS: increase max filename length (default 32 is too short for session files)
+CONFIG_SPIFFS_OBJ_NAME_LEN=64
