@@ -170,7 +170,7 @@ mimi> wifi_set MySSID MyPassword   # WiFiネットワークを変更
 mimi> set_tg_token 123456:ABC...   # Telegram Botトークンを変更
 mimi> set_api_key sk-ant-api03-... # APIキーを変更（Anthropic、OpenAI、またはMiniMax）
 mimi> set_model_provider minimax   # プロバイダーを切替（anthropic|openai|minimax）
-mimi> set_model MiniMax-M2.5       # MiniMaxモデルを使用
+mimi> set_model MiniMax-M2.7       # MiniMaxモデルを使用
 mimi> set_proxy 127.0.0.1 7897    # HTTPプロキシを設定
 mimi> clear_proxy                  # プロキシを削除
 mimi> set_search_key BSA...        # Brave Search APIキーを設定

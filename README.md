@@ -170,7 +170,7 @@ mimi> wifi_set MySSID MyPassword   # change WiFi network
 mimi> set_tg_token 123456:ABC...   # change Telegram bot token
 mimi> set_api_key sk-ant-api03-... # change API key (Anthropic, OpenAI, or MiniMax)
 mimi> set_model_provider minimax   # switch provider (anthropic|openai|minimax)
-mimi> set_model MiniMax-M2.5       # use MiniMax model
+mimi> set_model MiniMax-M2.7       # use MiniMax model
 mimi> set_model gpt-4o             # change LLM model
 mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy

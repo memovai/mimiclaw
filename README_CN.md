@@ -185,7 +185,7 @@ mimi> wifi_set MySSID MyPassword   # 换 WiFi
 mimi> set_tg_token 123456:ABC...   # 换 Telegram Bot Token
 mimi> set_api_key sk-ant-api03-... # 换 API Key（Anthropic、OpenAI 或 MiniMax）
 mimi> set_model_provider minimax   # 切换提供商（anthropic|openai|minimax）
-mimi> set_model MiniMax-M2.5       # 使用 MiniMax 模型
+mimi> set_model MiniMax-M2.7       # 使用 MiniMax 模型
 mimi> set_proxy 192.168.1.83 7897  # 设置代理
 mimi> clear_proxy                  # 清除代理
 mimi> set_search_key BSA...        # 设置 Brave Search API Key
