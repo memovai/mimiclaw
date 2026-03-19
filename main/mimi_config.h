@@ -46,6 +46,9 @@
 #ifndef MIMI_SECRET_TAVILY_KEY
 #define MIMI_SECRET_TAVILY_KEY      ""
 #endif
+#ifndef MIMI_SECRET_BASE_URL
+#define MIMI_SECRET_BASE_URL        ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -153,6 +156,7 @@
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"
 #define MIMI_NVS_KEY_PROXY_TYPE      "proxy_type"
+#define MIMI_NVS_KEY_BASE_URL        "base_url"
 
 /* WiFi Onboarding (Captive Portal) */
 #define MIMI_ONBOARD_AP_PREFIX    "MimiClaw-"

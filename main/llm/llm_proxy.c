@@ -15,12 +15,14 @@ static const char *TAG = "llm";
 
 #define LLM_API_KEY_MAX_LEN 320
 #define LLM_MODEL_MAX_LEN   64
+#define LLM_BASE_URL_MAX_LEN 256
 #define LLM_DUMP_MAX_BYTES   (16 * 1024)
 #define LLM_DUMP_CHUNK_BYTES 320
 
 static char s_api_key[LLM_API_KEY_MAX_LEN] = {0};
 static char s_model[LLM_MODEL_MAX_LEN] = MIMI_LLM_DEFAULT_MODEL;
 static char s_provider[16] = MIMI_LLM_PROVIDER_DEFAULT;
+static char s_base_url[LLM_BASE_URL_MAX_LEN] = {0};
 
 static void llm_log_payload(const char *label, const char *payload)
 {
@@ -187,8 +189,15 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+static const char *llm_api_path(void);  /* forward declaration */
+
 static const char *llm_api_url(void)
 {
+    if (s_base_url[0] != '\0') {
+        static char full_url[512];
+        snprintf(full_url, sizeof(full_url), "%s%s", s_base_url, llm_api_path());
+        return full_url;
+    }
     return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
 }
 
@@ -216,6 +225,9 @@ esp_err_t llm_proxy_init(void)
     if (MIMI_SECRET_MODEL_PROVIDER[0] != '\0') {
         safe_copy(s_provider, sizeof(s_provider), MIMI_SECRET_MODEL_PROVIDER);
     }
+    if (MIMI_SECRET_BASE_URL[0] != '\0') {
+        safe_copy(s_base_url, sizeof(s_base_url), MIMI_SECRET_BASE_URL);
+    }
 
     /* NVS overrides take highest priority (set via CLI) */
     nvs_handle_t nvs;
@@ -235,11 +247,16 @@ esp_err_t llm_proxy_init(void)
         if (nvs_get_str(nvs, MIMI_NVS_KEY_PROVIDER, provider_tmp, &len) == ESP_OK && provider_tmp[0]) {
             safe_copy(s_provider, sizeof(s_provider), provider_tmp);
         }
+        char base_url_tmp[LLM_BASE_URL_MAX_LEN] = {0};
+        len = sizeof(base_url_tmp);
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_BASE_URL, base_url_tmp, &len) == ESP_OK && base_url_tmp[0]) {
+            safe_copy(s_base_url, sizeof(s_base_url), base_url_tmp);
+        }
         nvs_close(nvs);
     }
 
     if (s_api_key[0]) {
-        ESP_LOGI(TAG, "LLM proxy initialized (provider: %s, model: %s)", s_provider, s_model);
+        ESP_LOGI(TAG, "LLM proxy initialized (provider: %s, model: %s, base_url: %s)", s_provider, s_model, s_base_url[0] ? s_base_url : "(default)");
     } else {
         ESP_LOGW(TAG, "No API key. Use CLI: set_api_key <KEY>");
     }
@@ -807,5 +824,22 @@ esp_err_t llm_set_provider(const char *provider)
 
     safe_copy(s_provider, sizeof(s_provider), provider);
     ESP_LOGI(TAG, "Provider set to: %s", s_provider);
+    return ESP_OK;
+}
+
+esp_err_t llm_set_base_url(const char *base_url)
+{
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_LLM, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_BASE_URL, base_url));
+    ESP_ERROR_CHECK(nvs_commit(nvs));
+    nvs_close(nvs);
+
+    safe_copy(s_base_url, sizeof(s_base_url), base_url);
+    if (s_base_url[0]) {
+        ESP_LOGI(TAG, "Base URL set to: %s", s_base_url);
+    } else {
+        ESP_LOGI(TAG, "Base URL cleared (using provider defaults)");
+    }
     return ESP_OK;
 }
