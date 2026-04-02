@@ -28,7 +28,7 @@ jobs:
           . $IDF_PATH/export.sh
           VERSION="${GITHUB_REF_NAME}"
 
-          # Generate merged firmware for single-command flashing (includes SPIFFS)
+          # 生成单文件固件，方便一条命令直接刷入。
           esptool.py --chip esp32s3 merge_bin \
             --flash_mode qio \
             --flash_size 16MB \
@@ -37,15 +37,13 @@ jobs:
             0x0      build/bootloader/bootloader.bin \
             0x8000   build/partition_table/partition-table.bin \
             0xf000   build/ota_data_initial.bin \
-            0x20000  build/mimiclaw.bin \
-            0x420000 build/spiffs.bin
+            0x20000  build/mimiclaw.bin
 
-          # Copy individual binaries with version suffix
+          # 保留分开的固件文件，方便需要手动刷写的场景。
           cp build/mimiclaw.bin              "mimiclaw-${VERSION}.bin"
           cp build/bootloader/bootloader.bin "bootloader-${VERSION}.bin"
           cp build/partition_table/partition-table.bin "partition-table-${VERSION}.bin"
           cp build/ota_data_initial.bin      "ota_data_initial-${VERSION}.bin"
-          cp build/spiffs.bin                "spiffs-${VERSION}.bin"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -69,28 +67,16 @@ jobs:
               0x0      bootloader-${{ github.ref_name }}.bin \
               0x8000   partition-table-${{ github.ref_name }}.bin \
               0xf000   ota_data_initial-${{ github.ref_name }}.bin \
-              0x20000  mimiclaw-${{ github.ref_name }}.bin \
-              0x420000 spiffs-${{ github.ref_name }}.bin
+              0x20000  mimiclaw-${{ github.ref_name }}.bin
             ```
 
-            ### 3. OTA update (for devices already running MimiClaw)
+            ### 3. 固件行为
 
-            Upload `mimiclaw-${{ github.ref_name }}.bin` via the OTA endpoint.
-
-            ### 4. First-time setup
-
-            After flashing, connect via serial (115200 baud) and configure:
-
-            ```
-            wifi <ssid> <password>
-            tg_token <your-telegram-bot-token>
-            api_key <your-anthropic-api-key>
-            reboot
-            ```
+            这是当前的 LLM MVP 固件。上电后会直接读取代码里的 WiFi 和 DeepSeek 配置，
+            自动联网、发起一次固定问题请求，并把结果打印到串口。
           files: |
             mimiclaw-full-${{ github.ref_name }}.bin
             mimiclaw-${{ github.ref_name }}.bin
             bootloader-${{ github.ref_name }}.bin
             partition-table-${{ github.ref_name }}.bin
             ota_data_initial-${{ github.ref_name }}.bin
-            spiffs-${{ github.ref_name }}.bin
