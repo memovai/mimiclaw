@@ -11,11 +11,24 @@
 
 static const char *TAG = "wifi";
 
+/// WiFi 连接结果同步事件组，由事件回调置位，主流程阻塞等待
 static EventGroupHandle_t s_wifi_event_group;
+
+/// 当前连接重试次数，仅在本轮连接流程中递增
 static int s_retry_count = 0;
+
+/// 当前是否已经拿到有效 IP
 static bool s_connected = false;
+
+/// 最近一次获取到的 IPv4 字符串
 static char s_ip_str[16] = "0.0.0.0";
 
+/**
+ * @brief 将 WiFi 断线原因转换为可读字符串
+ *
+ * @param[in] reason WiFi 底层断线原因码
+ * @return 原因描述字符串
+ */
 static const char *wifi_reason_to_str(wifi_err_reason_t reason)
 {
     switch (reason) {
@@ -33,9 +46,20 @@ static const char *wifi_reason_to_str(wifi_err_reason_t reason)
     }
 }
 
+/**
+ * @brief 处理 WiFi 和 IP 事件
+ *
+ * @param[in] arg        保留参数，当前未使用
+ * @param[in] event_base 事件基类
+ * @param[in] event_id   事件 ID
+ * @param[in] event_data 事件附带数据
+ *
+ * @note 该回调负责首次连接、断线重试和成功通知
+ */
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        /* → CONNECTING：驱动启动后立刻发起首次连接 */
         esp_wifi_connect();
         return;
     }
@@ -60,6 +84,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
             delay_ms = MVP_WIFI_RETRY_MAX_MS;
         }
 
+        /* → RETRY：按指数退避等待后再次连接，避免失败时立刻高频重试 */
         ESP_LOGW(TAG, "Retry %d/%d in %" PRIu32 " ms", s_retry_count + 1, MVP_WIFI_MAX_RETRY, delay_ms);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
         s_retry_count++;
@@ -70,6 +95,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
 
+        /* → CONNECTED：拿到 IP 后释放等待中的主流程 */
         snprintf(s_ip_str, sizeof(s_ip_str), IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_count = 0;
         s_connected = true;
@@ -78,6 +104,12 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
+/**
+ * @brief 初始化 WiFi 驱动和默认 STA 接口
+ *
+ * @return ESP_OK          初始化成功
+ * @return ESP_ERR_NO_MEM  事件组创建失败
+ */
 esp_err_t wifi_manager_init(void)
 {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -97,6 +129,12 @@ esp_err_t wifi_manager_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 使用配置头中的 SSID 和密码启动连接
+ *
+ * @return ESP_OK               启动成功
+ * @return ESP_ERR_INVALID_ARG  SSID 为空
+ */
 esp_err_t wifi_manager_start(void)
 {
     wifi_config_t wifi_cfg = {0};
@@ -121,6 +159,13 @@ esp_err_t wifi_manager_start(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 阻塞等待连接成功或失败
+ *
+ * @param[in] timeout_ms 等待超时，单位毫秒
+ * @return ESP_OK          已连接成功
+ * @return ESP_ERR_TIMEOUT 超时或连接失败
+ */
 esp_err_t wifi_manager_wait_connected(uint32_t timeout_ms)
 {
     TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
@@ -137,11 +182,22 @@ esp_err_t wifi_manager_wait_connected(uint32_t timeout_ms)
     return ESP_ERR_TIMEOUT;
 }
 
+/**
+ * @brief 查询当前是否已连接
+ *
+ * @return true  已连接
+ * @return false 未连接
+ */
 bool wifi_manager_is_connected(void)
 {
     return s_connected;
 }
 
+/**
+ * @brief 获取当前 IP 字符串
+ *
+ * @return 内部静态 IP 缓冲区
+ */
 const char *wifi_manager_get_ip(void)
 {
     return s_ip_str;

@@ -20,6 +20,13 @@ typedef struct {
 
 static char s_endpoint[160] = {0};
 
+/**
+ * @brief 初始化响应缓冲区
+ *
+ * @param[out] buffer 响应缓冲区对象
+ * @param[in]  cap    初始容量
+ * @return ESP_OK 或 ESP_ERR_NO_MEM
+ */
 static esp_err_t response_buffer_init(response_buffer_t *buffer, size_t cap)
 {
     buffer->data = calloc(1, cap);
@@ -31,6 +38,11 @@ static esp_err_t response_buffer_init(response_buffer_t *buffer, size_t cap)
     return ESP_OK;
 }
 
+/**
+ * @brief 释放响应缓冲区内部内存
+ *
+ * @param[in,out] buffer 响应缓冲区对象
+ */
 static void response_buffer_free(response_buffer_t *buffer)
 {
     free(buffer->data);
@@ -39,6 +51,14 @@ static void response_buffer_free(response_buffer_t *buffer)
     buffer->cap = 0;
 }
 
+/**
+ * @brief 向响应缓冲区追加一段 HTTP 正文
+ *
+ * @param[in,out] buffer 响应缓冲区对象
+ * @param[in]     data   本次收到的数据块
+ * @param[in]     len    数据块长度
+ * @return ESP_OK 或 ESP_ERR_NO_MEM
+ */
 static esp_err_t response_buffer_append(response_buffer_t *buffer, const char *data, size_t len)
 {
     if (buffer->len + len + 1 > buffer->cap) {
@@ -62,6 +82,14 @@ static esp_err_t response_buffer_append(response_buffer_t *buffer, const char *d
     return ESP_OK;
 }
 
+/**
+ * @brief HTTP 事件回调
+ *
+ * @param[in] event HTTP 事件对象
+ * @return ESP_OK 或底层内存错误码
+ *
+ * @note 当前仅处理 HTTP_EVENT_ON_DATA，用于拼接完整响应
+ */
 static esp_err_t http_event_handler(esp_http_client_event_t *event)
 {
     response_buffer_t *buffer = (response_buffer_t *)event->user_data;
@@ -73,6 +101,13 @@ static esp_err_t http_event_handler(esp_http_client_event_t *event)
     return ESP_OK;
 }
 
+/**
+ * @brief 复制一段日志预览文本，并压平换行字符
+ *
+ * @param[out] dst      目标缓冲区
+ * @param[in]  dst_size 目标缓冲区大小
+ * @param[in]  src      原始文本
+ */
 static void copy_preview(char *dst, size_t dst_size, const char *src)
 {
     size_t max_len;
@@ -105,6 +140,13 @@ static void copy_preview(char *dst, size_t dst_size, const char *src)
     }
 }
 
+/**
+ * @brief 构造 DeepSeek Chat Completions 请求体
+ *
+ * @param[in] system_prompt 系统提示词
+ * @param[in] user_question 用户问题
+ * @return 成功时返回 JSON 字符串，失败返回 NULL
+ */
 static char *build_request_body(const char *system_prompt, const char *user_question)
 {
     cJSON *root = cJSON_CreateObject();
@@ -139,6 +181,16 @@ static char *build_request_body(const char *system_prompt, const char *user_ques
     return body;
 }
 
+/**
+ * @brief 从响应 JSON 中提取最终回答
+ *
+ * @param[in]  raw_json    原始响应 JSON
+ * @param[out] answer      回答输出缓冲区
+ * @param[in]  answer_size 回答缓冲区大小
+ * @param[out] error       错误描述缓冲区
+ * @param[in]  error_size  错误描述缓冲区大小
+ * @return ESP_OK 或 ESP_FAIL
+ */
 static esp_err_t parse_answer(const char *raw_json, char *answer, size_t answer_size, char *error, size_t error_size)
 {
     cJSON *root = cJSON_Parse(raw_json);
@@ -176,6 +228,11 @@ static esp_err_t parse_answer(const char *raw_json, char *answer, size_t answer_
     return ESP_OK;
 }
 
+/**
+ * @brief 初始化 DeepSeek 客户端静态配置
+ *
+ * @return ESP_OK、ESP_ERR_INVALID_STATE 或 ESP_ERR_INVALID_SIZE
+ */
 esp_err_t llm_proxy_init(void)
 {
     if (MVP_LLM_API_KEY[0] == '\0') {
@@ -208,6 +265,18 @@ const char *llm_proxy_endpoint(void)
     return s_endpoint;
 }
 
+/**
+ * @brief 发起一次完整的 DeepSeek 非流式请求
+ *
+ * @param[in]  system_prompt 系统提示词
+ * @param[in]  user_question 用户问题
+ * @param[out] answer        回答输出缓冲区
+ * @param[in]  answer_size   回答缓冲区大小
+ * @param[out] http_status   HTTP 状态码输出，可为 NULL
+ * @param[out] error         错误描述缓冲区
+ * @param[in]  error_size    错误描述缓冲区大小
+ * @return ESP_OK、ESP_FAIL 或 ESP_ERR_NO_MEM
+ */
 esp_err_t llm_proxy_chat_once(const char *system_prompt,
                               const char *user_question,
                               char *answer,

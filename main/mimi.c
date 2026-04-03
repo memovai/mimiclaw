@@ -14,6 +14,14 @@
 
 static const char *TAG = "mimi_mvp";
 
+/**
+ * @brief 初始化 NVS 子系统
+ *
+ * WiFi 驱动依赖 NVS 保存底层校准和运行数据，因此在联网前必须先完成
+ * 该步骤。如果 NVS 分区版本不兼容，则擦除后重新初始化。
+ *
+ * @return ESP_OK 或底层 NVS 错误码
+ */
 static esp_err_t init_nvs(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -24,12 +32,24 @@ static esp_err_t init_nvs(void)
     return err;
 }
 
+/**
+ * @brief 以统一格式打印关键文本块
+ *
+ * @param[in] title   区块标题
+ * @param[in] content 区块内容，可为 NULL
+ */
 static void print_block(const char *title, const char *content)
 {
     printf("\n===== %s =====\n%s\n====================\n", title, content ? content : "(empty)");
     fflush(stdout);
 }
 
+/**
+ * @brief 延时一段时间后进入空转
+ *
+ * 当前固件只执行一次问答流程。结果打印完成后继续存活一段时间，
+ * 让串口窗口有机会完整显示输出，再进入空转状态。
+ */
 static void delay_and_idle(void)
 {
     ESP_LOGI(TAG, "Staying alive for %d ms so the serial output remains visible", MVP_POST_RESULT_DELAY_MS);
@@ -60,11 +80,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Internal free: %d bytes", (int)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     ESP_LOGI(TAG, "PSRAM free:    %d bytes", (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
-    /*
-     * app_main 运行在 IDF 的主任务里，默认栈只有几 KB。
-     * 回答缓冲区有 24 KB，如果直接放在栈上，会在真正联网前就把内存踩坏。
-     * 这里改成从堆里申请，大块数据优先放到 PSRAM，避免再次触发这类崩溃。
-     */
+    /* 主任务栈默认很小，大回答缓冲区必须放堆上，避免启动阶段栈溢出。 */
     answer = heap_caps_malloc(MVP_LLM_RESPONSE_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!answer) {
         answer = heap_caps_malloc(MVP_LLM_RESPONSE_BUF_SIZE, MALLOC_CAP_8BIT);
@@ -79,10 +95,12 @@ void app_main(void)
         return;
     }
 
+    /* 先完成平台初始化，再进入联网和请求阶段。 */
     ESP_ERROR_CHECK(init_nvs());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(wifi_manager_init());
 
+    /* LLM 初始化只做静态检查，不会真正发请求。 */
     err = llm_proxy_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "LLM init failed: %s", esp_err_to_name(err));
@@ -91,6 +109,7 @@ void app_main(void)
         return;
     }
 
+    /* 主链路第一步：联网。只有拿到 IP 后才继续访问 DeepSeek。 */
     ESP_LOGI(TAG, "Connecting to WiFi...");
     err = wifi_manager_start();
     if (err != ESP_OK) {
@@ -113,6 +132,7 @@ void app_main(void)
     print_block("SYSTEM PROMPT", MVP_SYSTEM_PROMPT);
     print_block("USER QUESTION", MVP_USER_QUESTION);
 
+    /* 主链路第二步：发起 HTTPS 请求并解析最终回答。 */
     err = llm_proxy_chat_once(MVP_SYSTEM_PROMPT,
                               MVP_USER_QUESTION,
                               answer,
