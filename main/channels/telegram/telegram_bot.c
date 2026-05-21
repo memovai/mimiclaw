@@ -2,6 +2,9 @@
 #include "mimi_config.h"
 #include "bus/message_bus.h"
 #include "proxy/http_proxy.h"
+#include "wifi/wifi_manager.h"
+
+#include <time.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -560,4 +563,79 @@ esp_err_t telegram_set_token(const char *token)
     strncpy(s_bot_token, token, sizeof(s_bot_token) - 1);
     ESP_LOGI(TAG, "Telegram bot token saved");
     return ESP_OK;
+}
+
+esp_err_t telegram_send_first_boot_notice(void)
+{
+#if !MIMI_TG_SEND_FIRST_BOOT
+    return ESP_OK;
+#else
+    const char *chat_id = MIMI_SECRET_TG_ADMIN_CHAT_ID;
+    if (!chat_id || chat_id[0] == '\0') {
+        ESP_LOGW(TAG, "First-boot notice enabled but MIMI_SECRET_TG_ADMIN_CHAT_ID is empty");
+        return ESP_OK;
+    }
+    if (s_bot_token[0] == '\0') {
+        ESP_LOGW(TAG, "First-boot notice: bot token not configured");
+        return ESP_OK;
+    }
+
+    nvs_handle_t nvs;
+    if (nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs) != ESP_OK) {
+        ESP_LOGW(TAG, "First-boot notice: NVS open failed");
+        return ESP_OK;
+    }
+
+    uint8_t done = 0;
+    esp_err_t get_err = nvs_get_u8(nvs, MIMI_NVS_KEY_FIRST_BOOT_DONE, &done);
+    if (get_err == ESP_OK && done == 1) {
+        nvs_close(nvs);
+        return ESP_OK;
+    }
+
+    char msg[256];
+    const char *ip = wifi_manager_get_ip();
+    time_t now = time(NULL);
+    struct tm tm_info;
+    char ts[32] = "(time not set)";
+    if (now > 1700000000) {
+        localtime_r(&now, &tm_info);
+        strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm_info);
+    }
+    snprintf(msg, sizeof(msg),
+             "MimiClaw booted.\n"
+             "IP: %s\n"
+             "Time: %s",
+             (ip && ip[0]) ? ip : "(unknown)", ts);
+
+    esp_err_t send_err = telegram_send_message(chat_id, msg);
+    if (send_err == ESP_OK) {
+        if (nvs_set_u8(nvs, MIMI_NVS_KEY_FIRST_BOOT_DONE, 1) == ESP_OK) {
+            nvs_commit(nvs);
+        }
+        ESP_LOGI(TAG, "First-boot notice sent to %s", chat_id);
+    } else {
+        ESP_LOGW(TAG, "First-boot notice send failed: %s (will retry next boot)",
+                 esp_err_to_name(send_err));
+    }
+    nvs_close(nvs);
+    return ESP_OK;
+#endif
+}
+
+esp_err_t telegram_reset_first_boot_flag(void)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = nvs_erase_key(nvs, MIMI_NVS_KEY_FIRST_BOOT_DONE);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(nvs);
+        err = ESP_OK;
+    }
+    nvs_close(nvs);
+    ESP_LOGI(TAG, "First-boot flag cleared; next boot will re-send notice");
+    return err;
 }

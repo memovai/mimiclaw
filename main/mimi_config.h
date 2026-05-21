@@ -16,6 +16,9 @@
 #ifndef MIMI_SECRET_TG_TOKEN
 #define MIMI_SECRET_TG_TOKEN        ""
 #endif
+#ifndef MIMI_SECRET_TG_ADMIN_CHAT_ID
+#define MIMI_SECRET_TG_ADMIN_CHAT_ID ""
+#endif
 #ifndef MIMI_SECRET_API_KEY
 #define MIMI_SECRET_API_KEY         ""
 #endif
@@ -60,6 +63,12 @@
 #define MIMI_TG_POLL_CORE            0
 #define MIMI_TG_CARD_SHOW_MS         3000
 #define MIMI_TG_CARD_BODY_SCALE      3
+
+/* First-boot Telegram notification.
+ * Set to 0 to disable the one-time "device booted" message. When enabled,
+ * the device sends a single message to MIMI_SECRET_TG_ADMIN_CHAT_ID on the
+ * first boot after flashing (idempotent — guarded by an NVS flag). */
+#define MIMI_TG_SEND_FIRST_BOOT      1
 
 /* Feishu Bot */
 #define MIMI_FEISHU_MAX_MSG_LEN          4096
@@ -144,6 +153,7 @@
 #define MIMI_NVS_KEY_SSID            "ssid"
 #define MIMI_NVS_KEY_PASS            "password"
 #define MIMI_NVS_KEY_TG_TOKEN        "bot_token"
+#define MIMI_NVS_KEY_FIRST_BOOT_DONE "fb_done"
 #define MIMI_NVS_KEY_FEISHU_APP_ID   "app_id"
 #define MIMI_NVS_KEY_FEISHU_APP_SECRET "app_secret"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
