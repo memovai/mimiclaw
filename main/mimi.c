@@ -26,6 +26,7 @@
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
 #include "onboard/wifi_onboard.h"
+#include "time/time_sync.h"
 
 static const char *TAG = "mimi";
 
@@ -150,6 +151,9 @@ void app_main(void)
         if (wifi_manager_wait_connected(30000) == ESP_OK) {
             wifi_ok = true;
             ESP_LOGI(TAG, "WiFi connected: %s", wifi_manager_get_ip());
+            /* Kick SNTP as soon as we have an IP so the RTC is set
+             * before time-sensitive code (session logs, cron, etc.). */
+            time_sync_start();
         } else {
             ESP_LOGW(TAG, "WiFi connection timeout");
         }
