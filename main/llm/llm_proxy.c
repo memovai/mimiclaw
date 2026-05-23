@@ -8,6 +8,7 @@
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
+#include "esp_task_wdt.h"
 #include "nvs.h"
 #include "cJSON.h"
 
@@ -277,7 +278,12 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
     }
     esp_http_client_set_post_field(client, post_data, strlen(post_data));
 
+    bool wdt_was_subscribed = (esp_task_wdt_delete(NULL) == ESP_OK);
     esp_err_t err = esp_http_client_perform(client);
+    if (wdt_was_subscribed) {
+        esp_task_wdt_add(NULL);
+        esp_task_wdt_reset();
+    }
     *out_status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
     return err;
@@ -322,10 +328,15 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
 
     /* Read full response into buffer */
     char tmp[4096];
+    bool wdt_was_subscribed = (esp_task_wdt_delete(NULL) == ESP_OK);
     while (1) {
         int n = proxy_conn_read(conn, tmp, sizeof(tmp), 120000);
         if (n <= 0) break;
         if (resp_buf_append(rb, tmp, n) != ESP_OK) break;
+    }
+    if (wdt_was_subscribed) {
+        esp_task_wdt_add(NULL);
+        esp_task_wdt_reset();
     }
     proxy_conn_close(conn);
 
