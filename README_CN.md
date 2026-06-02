@@ -40,7 +40,7 @@ MimiClaw 把一块小小的 ESP32-S3 开发板变成你的私人 AI 助理。插
 - 一块 **ESP32-S3 开发板**，16MB Flash + 8MB PSRAM（如小智 AI 开发板，~¥30）
 - 一根 **USB Type-C 数据线**
 - 一个 **Telegram Bot Token** — 在 Telegram 找 [@BotFather](https://t.me/BotFather) 创建
-- 一个 **Anthropic API Key** — 从 [console.anthropic.com](https://console.anthropic.com) 获取，或一个 **OpenAI API Key** — 从 [platform.openai.com](https://platform.openai.com) 获取
+- 一个 **Anthropic API Key** — 从 [console.anthropic.com](https://console.anthropic.com) 获取，一个 **OpenAI API Key** — 从 [platform.openai.com](https://platform.openai.com) 获取，或一个 **MiniMax API Key** — 从 [platform.minimax.io](https://platform.minimax.io) 获取（MiniMax 提供 OpenAI 兼容接口，默认模型为 `MiniMax-M3`，另有 `MiniMax-M2.7` / `MiniMax-M2.7-highspeed` 可选）
 
 ### 安装
 
@@ -128,7 +128,7 @@ cp main/mimi_secrets.h.example main/mimi_secrets.h
 #define MIMI_SECRET_WIFI_PASS       "你的WiFi密码"
 #define MIMI_SECRET_TG_TOKEN        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 #define MIMI_SECRET_API_KEY         "sk-ant-api03-xxxxx"
-#define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic" 或 "openai"
+#define MIMI_SECRET_MODEL_PROVIDER  "anthropic"     // "anthropic"、"openai" 或 "minimax"
 #define MIMI_SECRET_SEARCH_KEY      ""              // 可选：Brave Search API key
 #define MIMI_SECRET_TAVILY_KEY      ""              // 可选：Tavily API key（优先）
 #define MIMI_SECRET_PROXY_HOST      "10.0.0.1"      // 可选：代理地址
@@ -184,8 +184,9 @@ mimi> clear_proxy                    # 清除代理
 mimi> wifi_set MySSID MyPassword   # 换 WiFi
 mimi> set_tg_token 123456:ABC...   # 换 Telegram Bot Token
 mimi> set_api_key sk-ant-api03-... # 换 API Key（Anthropic 或 OpenAI）
-mimi> set_model_provider openai    # 切换提供商（anthropic|openai）
+mimi> set_model_provider openai    # 切换提供商（anthropic|openai|minimax）
 mimi> set_model gpt-4o             # 换模型
+mimi> set_model MiniMax-M3         # MiniMax 默认模型（也支持 MiniMax-M2.7、MiniMax-M2.7-highspeed）
 mimi> set_proxy 192.168.1.83 7897  # 设置代理
 mimi> clear_proxy                  # 清除代理
 mimi> set_search_key BSA...        # 设置 Brave Search API Key
