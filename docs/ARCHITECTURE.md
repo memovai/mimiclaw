@@ -1,398 +1,242 @@
 # MimiClaw Architecture
 
-> ESP32-S3 AI Agent firmware — C/FreeRTOS implementation running on bare metal (no Linux).
-
----
+> ESP32-S3 AI Agent firmware in C/FreeRTOS, running without Linux, Node.js, or a host server.
 
 ## System Overview
 
-```
-Telegram App (User)
-    │
-    │  HTTPS Long Polling
-    │
-    ▼
-┌──────────────────────────────────────────────────┐
-│               ESP32-S3 (MimiClaw)                │
-│                                                  │
-│   ┌─────────────┐       ┌──────────────────┐     │
-│   │  Telegram    │──────▶│   Inbound Queue  │     │
-│   │  Poller      │       └────────┬─────────┘     │
-│   │  (Core 0)    │               │                │
-│   └─────────────┘               ▼                │
-│                     ┌────────────────────────┐    │
-│   ┌─────────────┐  │     Agent Loop          │    │
-│   │  WebSocket   │─▶│     (Core 1)           │    │
-│   │  Server      │  │                        │    │
-│   │  (:18789)    │  │  Context ──▶ LLM Proxy │    │
-│   └─────────────┘  │  Builder      (HTTPS)   │    │
-│                     │       ▲          │      │    │
-│   ┌─────────────┐  │       │     tool_use?   │    │
-│   │  Serial CLI  │  │       │          ▼      │    │
-│   │  (Core 0)    │  │  Tool Results ◀─ Tools  │    │
-│   └─────────────┘  │              (web_search)│    │
-│                     └──────────┬─────────────┘    │
-│                                │                  │
-│                         ┌──────▼───────┐          │
-│                         │ Outbound Queue│          │
-│                         └──────┬───────┘          │
-│                                │                  │
-│                         ┌──────▼───────┐          │
-│                         │  Outbound    │          │
-│                         │  Dispatch    │          │
-│                         │  (Core 0)    │          │
-│                         └──┬────────┬──┘          │
-│                            │        │             │
-│                     Telegram    WebSocket          │
-│                     sendMessage  send              │
-│                                                   │
-│   ┌──────────────────────────────────────────┐    │
-│   │  SPIFFS (12 MB)                          │    │
-│   │  /spiffs/config/  SOUL.md, USER.md       │    │
-│   │  /spiffs/memory/  MEMORY.md, YYYY-MM-DD  │    │
-│   │  /spiffs/sessions/ tg_<chat_id>.jsonl    │    │
-│   └──────────────────────────────────────────┘    │
-└───────────────────────────────────────────────────┘
-         │
-         │  Anthropic Messages API (HTTPS)
-         │  + Brave Search API (HTTPS)
-         ▼
-   ┌───────────┐   ┌──────────────┐
-   │ Claude API │   │ Brave Search │
-   └───────────┘   └──────────────┘
+MimiClaw receives messages from Telegram, Feishu/Lark, or the local WebSocket gateway. Each message is pushed into a FreeRTOS inbound queue, processed by the agent loop, optionally handled through tools, and then routed back through the outbound queue.
+
+```text
+Telegram / Feishu / WebSocket
+        |
+        v
+Inbound queue -> Agent loop -> LLM proxy -> Anthropic or OpenAI
+                     |
+                     v
+      Tools: search, time, files, cron, GPIO
+                     |
+                     v
+Outbound queue -> Telegram / Feishu / WebSocket / system log
 ```
 
----
+Persistent state lives on SPIFFS:
+
+- `/spiffs/config/SOUL.md` and `/spiffs/config/USER.md`
+- `/spiffs/memory/MEMORY.md` and `/spiffs/memory/YYYY-MM-DD.md`
+- `/spiffs/sessions/<chat_id>.jsonl`
+- `/spiffs/skills/*.md`
+- `/spiffs/cron.json`
+- `/spiffs/HEARTBEAT.md`
 
 ## Data Flow
 
-```
-1. User sends message on Telegram (or WebSocket)
-2. Channel poller receives message, wraps in mimi_msg_t
-3. Message pushed to Inbound Queue (FreeRTOS xQueue)
-4. Agent Loop (Core 1) pops message:
-   a. Load session history from SPIFFS (JSONL)
-   b. Build system prompt (SOUL.md + USER.md + MEMORY.md + recent notes + tool guidance)
-   c. Build cJSON messages array (history + current message)
-   d. ReAct loop (max 10 iterations):
-      i.   Call Claude API via HTTPS (non-streaming, with tools array)
-      ii.  Parse JSON response → text blocks + tool_use blocks
-      iii. If stop_reason == "tool_use":
-           - Execute each tool (e.g. web_search → Brave Search API)
-           - Append assistant content + tool_result to messages
-           - Continue loop
-      iv.  If stop_reason == "end_turn": break with final text
-   e. Save user message + final assistant text to session file
-   f. Push response to Outbound Queue
-5. Outbound Dispatch (Core 0) pops response:
-   a. Route by channel field ("telegram" → sendMessage, "websocket" → WS frame)
-6. User receives reply
-```
-
----
+1. A channel receives a text message and wraps it in `mimi_msg_t`.
+2. The message is pushed to the inbound queue.
+3. The agent loop builds context from config files, long-term memory, recent daily notes, skills, session history, and tool guidance.
+4. The LLM proxy calls the configured provider with tool schemas.
+5. If the model requests tools, the agent executes them and sends tool results back into the same LLM turn.
+6. The final response is saved to the session history and pushed to the outbound queue.
+7. The outbound dispatcher sends the response through Telegram, Feishu, WebSocket, or the system log.
 
 ## Module Map
 
-```
+```text
 main/
-├── mimi.c                  Entry point — app_main() orchestrates init + startup
-├── mimi_config.h           All compile-time constants + build-time secrets include
-├── mimi_secrets.h          Build-time credentials (gitignored, highest priority)
-├── mimi_secrets.h.example  Template for mimi_secrets.h
-│
-├── bus/
-│   ├── message_bus.h       mimi_msg_t struct, queue API
-│   └── message_bus.c       Two FreeRTOS queues: inbound + outbound
-│
-├── wifi/
-│   ├── wifi_manager.h      WiFi STA lifecycle API
-│   └── wifi_manager.c      Event handler, exponential backoff
-│
-├── telegram/
-│   ├── telegram_bot.h      Bot init/start, send_message API
-│   └── telegram_bot.c      Long polling loop, JSON parsing, message splitting
-│
-├── llm/
-│   ├── llm_proxy.h         llm_chat() + llm_chat_tools() API, tool_use types
-│   └── llm_proxy.c         Anthropic Messages API (non-streaming), tool_use parsing
-│
-├── agent/
-│   ├── agent_loop.h        Agent task init/start
-│   ├── agent_loop.c        ReAct loop: LLM call → tool execution → repeat
-│   ├── context_builder.h   System prompt + messages builder API
-│   └── context_builder.c   Reads bootstrap files + memory + tool guidance
-│
-├── tools/
-│   ├── tool_registry.h     Tool definition struct, register/dispatch API
-│   ├── tool_registry.c     Tool registration, JSON schema builder, dispatch by name
-│   ├── tool_web_search.h   Web search tool API
-│   └── tool_web_search.c   Brave Search API via HTTPS (direct + proxy)
-│
-├── memory/
-│   ├── memory_store.h      Long-term + daily memory API
-│   ├── memory_store.c      MEMORY.md read/write, daily .md append/read
-│   ├── session_mgr.h       Per-chat session API
-│   └── session_mgr.c       JSONL session files, ring buffer history
-│
-├── gateway/
-│   ├── ws_server.h         WebSocket server API
-│   └── ws_server.c         ESP HTTP server with WS upgrade, client tracking
-│
-├── proxy/
-│   ├── http_proxy.h        Proxy connection API
-│   └── http_proxy.c        HTTP CONNECT tunnel + TLS via esp_tls
-│
-├── cli/
-│   ├── serial_cli.h        CLI init API
-│   └── serial_cli.c        esp_console REPL with debug/maintenance commands
-│
-└── ota/
-    ├── ota_manager.h       OTA update API
-    └── ota_manager.c       esp_https_ota wrapper
+├── mimi.c                    app_main(), startup order, outbound dispatch
+├── mimi_config.h             compile-time constants and default secret include
+├── bus/                      FreeRTOS inbound/outbound queues
+├── wifi/                     WiFi STA lifecycle
+├── channels/
+│   ├── telegram/             Telegram long polling and sendMessage
+│   └── feishu/               Feishu/Lark WebSocket long connection and send API
+├── llm/                      Anthropic/OpenAI HTTPS proxy and tool-call parsing
+├── agent/                    ReAct loop and context builder
+├── tools/                    search, time, SPIFFS files, cron, GPIO tools
+├── memory/                   MEMORY.md, daily notes, and JSONL sessions
+├── skills/                   SPIFFS markdown skill summary loader
+├── cron/                     persistent at/every scheduled agent triggers
+├── heartbeat/                periodic HEARTBEAT.md checks
+├── gateway/                  local WebSocket server on port 18789
+├── proxy/                    HTTP CONNECT tunnel support
+├── cli/                      serial REPL and runtime configuration
+├── ota/                      HTTPS OTA wrapper
+└── onboard/                  captive portal and local admin config portal
 ```
 
----
+## FreeRTOS Tasks
 
-## FreeRTOS Task Layout
+| Task | Core | Priority | Stack | Description |
+|---|---:|---:|---:|---|
+| `tg_poll` | 0 | 5 | 12 KB | Telegram long polling |
+| `feishu_ws` | 0 | 5 | 12 KB | Feishu/Lark WebSocket long connection |
+| `agent_loop` | 1 | 6 | 24 KB | Agent turn processing and LLM calls |
+| `outbound` | 0 | 5 | 12 KB | Response routing |
+| `serial_cli` | 0 | 3 | 4 KB | UART console REPL |
+| `cron` | any | 4 | 4 KB | Scheduled job checks |
+| `heartbeat` timer | - | - | - | Periodic HEARTBEAT.md check |
+| httpd internal tasks | 0 | 5 | IDF-managed | WebSocket/admin HTTP server |
+| WiFi/event tasks | 0 | IDF-managed | IDF-managed | WiFi and event handling |
 
-| Task               | Core | Priority | Stack  | Description                          |
-|--------------------|------|----------|--------|--------------------------------------|
-| `tg_poll`          | 0    | 5        | 12 KB  | Telegram long polling (30s timeout)  |
-| `agent_loop`       | 1    | 6        | 12 KB  | Message processing + Claude API call |
-| `outbound`         | 0    | 5        | 8 KB   | Route responses to Telegram / WS     |
-| `serial_cli`       | 0    | 3        | 4 KB   | USB serial console REPL              |
-| httpd (internal)   | 0    | 5        | —      | WebSocket server (esp_http_server)   |
-| wifi_event (IDF)   | 0    | 8        | —      | WiFi event handling (ESP-IDF)        |
+Large buffers for context, history, tool output, and LLM responses are allocated from PSRAM where possible.
 
-**Core allocation strategy**: Core 0 handles I/O (network, serial, WiFi). Core 1 is dedicated to the agent loop (CPU-bound JSON building + waiting on HTTPS).
+## Flash Layout
 
----
-
-## Memory Budget
-
-| Purpose                            | Location       | Size     |
-|------------------------------------|----------------|----------|
-| FreeRTOS task stacks               | Internal SRAM  | ~40 KB   |
-| WiFi buffers                       | Internal SRAM  | ~30 KB   |
-| TLS connections x2 (Telegram + Claude) | PSRAM      | ~120 KB  |
-| JSON parse buffers                 | PSRAM          | ~32 KB   |
-| Session history cache              | PSRAM          | ~32 KB   |
-| System prompt buffer               | PSRAM          | ~16 KB   |
-| LLM response stream buffer         | PSRAM          | ~32 KB   |
-| Remaining available                | PSRAM          | ~7.7 MB  |
-
-Large buffers (32 KB+) are allocated from PSRAM via `heap_caps_calloc(1, size, MALLOC_CAP_SPIRAM)`.
-
----
-
-## Flash Partition Layout
-
-```
+```text
 Offset      Size      Name        Purpose
-─────────────────────────────────────────────
-0x009000    24 KB     nvs         ESP-IDF internal use (WiFi calibration etc.)
+0x009000    24 KB     nvs         ESP-IDF and runtime app config
 0x00F000     8 KB     otadata     OTA boot state
 0x011000     4 KB     phy_init    WiFi PHY calibration
 0x020000     2 MB     ota_0       Firmware slot A
 0x220000     2 MB     ota_1       Firmware slot B
-0x420000    12 MB     spiffs      Markdown memory, sessions, config
+0x420000    12 MB     spiffs      Markdown config, memory, sessions, skills, cron
 0xFF0000    64 KB     coredump    Crash dump storage
 ```
 
-Total: 16 MB flash.
-
----
-
-## Storage Layout (SPIFFS)
-
-SPIFFS is a flat filesystem — no real directories. Files use path-like names.
-
-```
-/spiffs/config/SOUL.md          AI personality definition
-/spiffs/config/USER.md          User profile
-/spiffs/memory/MEMORY.md        Long-term persistent memory
-/spiffs/memory/2026-02-05.md    Daily notes (one file per day)
-/spiffs/sessions/tg_12345.jsonl Session history (one file per Telegram chat)
-```
-
-Session files are JSONL (one JSON object per line):
-```json
-{"role":"user","content":"Hello","ts":1738764800}
-{"role":"assistant","content":"Hi there!","ts":1738764802}
-```
-
----
-
 ## Configuration
 
-All configuration is done exclusively through `mimi_secrets.h` at build time. There is no runtime configuration — changing any setting requires `idf.py fullclean && idf.py build`.
+Configuration has two layers:
 
-| Define                       | Description                             |
-|------------------------------|-----------------------------------------|
-| `MIMI_SECRET_WIFI_SSID`     | WiFi SSID                               |
-| `MIMI_SECRET_WIFI_PASS`     | WiFi password                           |
-| `MIMI_SECRET_TG_TOKEN`      | Telegram Bot API token                  |
-| `MIMI_SECRET_API_KEY`       | Anthropic API key                       |
-| `MIMI_SECRET_MODEL`         | Model ID (default: claude-opus-4-6)     |
-| `MIMI_SECRET_PROXY_HOST`    | HTTP proxy hostname/IP (optional)       |
-| `MIMI_SECRET_PROXY_PORT`    | HTTP proxy port (optional)              |
-| `MIMI_SECRET_SEARCH_KEY`    | Brave Search API key (optional)         |
+1. `main/mimi_secrets.h` provides build-time defaults.
+2. NVS stores runtime overrides set through the serial CLI or onboarding/admin portal.
 
-NVS is still initialized (required by ESP-IDF WiFi internals) but is not used for application configuration.
+Important build-time defaults:
 
----
+| Define | Description |
+|---|---|
+| `MIMI_SECRET_WIFI_SSID` / `MIMI_SECRET_WIFI_PASS` | WiFi credentials |
+| `MIMI_SECRET_TG_TOKEN` | Telegram bot token |
+| `MIMI_SECRET_FEISHU_APP_ID` / `MIMI_SECRET_FEISHU_APP_SECRET` | Feishu/Lark credentials |
+| `MIMI_SECRET_API_KEY` | Anthropic or OpenAI API key |
+| `MIMI_SECRET_MODEL_PROVIDER` | `anthropic` or `openai` |
+| `MIMI_SECRET_MODEL` | Model ID |
+| `MIMI_SECRET_PROXY_HOST` / `MIMI_SECRET_PROXY_PORT` | HTTP CONNECT proxy |
+| `MIMI_SECRET_TAVILY_KEY` | Tavily Search key, preferred when present |
+| `MIMI_SECRET_SEARCH_KEY` | Brave Search key fallback |
 
-## Message Bus Protocol
+Runtime configuration commands include `wifi_set`, `set_tg_token`, `set_feishu_creds`, `set_api_key`, `set_model_provider`, `set_model`, `set_proxy`, `clear_proxy`, `set_search_key`, `set_tavily_key`, `config_show`, and `config_reset`.
 
-The internal message bus uses two FreeRTOS queues carrying `mimi_msg_t`:
+## Message Bus
+
+The internal bus uses two FreeRTOS queues carrying `mimi_msg_t`:
 
 ```c
 typedef struct {
-    char channel[16];   // "telegram", "websocket", "cli"
-    char chat_id[32];   // Telegram chat ID or WS client ID
-    char *content;      // Heap-allocated text (ownership transferred)
+    char channel[16];   /* "telegram", "feishu", "websocket", "cli", "system" */
+    char chat_id[96];   /* Telegram/Feishu chat_id, open_id, or WS client id */
+    char *content;      /* heap-allocated text; ownership transfers through queues */
 } mimi_msg_t;
 ```
 
-- **Inbound queue**: channels → agent loop (depth: 8)
-- **Outbound queue**: agent loop → dispatch → channels (depth: 8)
-- Content string ownership is transferred on push; receiver must `free()`.
+The inbound queue carries channel messages to the agent loop. The outbound queue carries agent responses to the dispatcher.
 
----
+## Tools
 
-## WebSocket Protocol
+Tools are registered in `tools/tool_registry.c` and exposed to the configured LLM provider:
 
-Port: **18789**. Max clients: **4**.
+| Tool | Purpose |
+|---|---|
+| `web_search` | Search through Tavily when configured, otherwise Brave |
+| `get_current_time` | Fetch current time and update the device clock |
+| `read_file` | Read SPIFFS files under `/spiffs/` |
+| `write_file` | Write SPIFFS files under `/spiffs/` |
+| `edit_file` | Replace the first matching string in a SPIFFS file |
+| `list_dir` | List SPIFFS entries, optionally by prefix |
+| `cron_add` | Add a recurring interval or one-shot epoch job |
+| `cron_list` | List scheduled jobs |
+| `cron_remove` | Remove a scheduled job |
+| `gpio_write` | Set an allowed GPIO pin high or low |
+| `gpio_read` | Read one allowed GPIO pin |
+| `gpio_read_all` | Read all allowed GPIO pins |
 
-**Client → Server:**
-```json
-{"type": "message", "content": "Hello", "chat_id": "ws_client1"}
-```
+File tools intentionally restrict paths to `/spiffs/` and reject `..` traversal.
 
-**Server → Client:**
-```json
-{"type": "response", "content": "Hi there!", "chat_id": "ws_client1"}
-```
+## LLM Providers
 
-Client `chat_id` is auto-assigned on connection (`ws_<fd>`) but can be overridden in the first message.
+The LLM proxy supports:
 
----
+- Anthropic Messages API: `https://api.anthropic.com/v1/messages`
+- OpenAI Chat Completions API: `https://api.openai.com/v1/chat/completions`
 
-## Claude API Integration
-
-Endpoint: `POST https://api.anthropic.com/v1/messages`
-
-Request format (Anthropic-native, non-streaming, with tools):
-```json
-{
-  "model": "claude-opus-4-6",
-  "max_tokens": 4096,
-  "system": "<system prompt>",
-  "tools": [
-    {
-      "name": "web_search",
-      "description": "Search the web for current information.",
-      "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
-    }
-  ],
-  "messages": [
-    {"role": "user", "content": "Hello"},
-    {"role": "assistant", "content": "Hi!"},
-    {"role": "user", "content": "What's the weather today?"}
-  ]
-}
-```
-
-Key difference from OpenAI: `system` is a top-level field, not inside the `messages` array.
-
-Non-streaming JSON response:
-```json
-{
-  "id": "msg_xxx",
-  "type": "message",
-  "role": "assistant",
-  "content": [
-    {"type": "text", "text": "Let me search for that."},
-    {"type": "tool_use", "id": "toolu_xxx", "name": "web_search", "input": {"query": "weather today"}}
-  ],
-  "stop_reason": "tool_use"
-}
-```
-
-When `stop_reason` is `"tool_use"`, the agent loop executes each tool and sends results back:
-```json
-{"role": "assistant", "content": [<text + tool_use blocks>]}
-{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_xxx", "content": "..."}]}
-```
-
-The loop repeats until `stop_reason` is `"end_turn"` (max 10 iterations).
-
----
+Anthropic requests use a top-level `system` field and Anthropic tool-use blocks. OpenAI requests convert the system prompt into a system message and convert tool schemas to OpenAI's `tools` format. Calls are non-streaming; the WebSocket gateway does not currently stream tokens.
 
 ## Startup Sequence
 
-```
+```text
 app_main()
-  ├── init_nvs()                    NVS flash init (erase if corrupted)
+  ├── init_nvs()
   ├── esp_event_loop_create_default()
-  ├── init_spiffs()                 Mount SPIFFS at /spiffs
-  ├── message_bus_init()            Create inbound + outbound queues
-  ├── memory_store_init()           Verify SPIFFS paths
+  ├── init_spiffs()
+  ├── message_bus_init()
+  ├── memory_store_init()
+  ├── skill_loader_init()
   ├── session_mgr_init()
-  ├── wifi_manager_init()           Init WiFi STA mode + event handlers
-  ├── http_proxy_init()             Load proxy config from build-time secrets
-  ├── telegram_bot_init()           Load bot token from build-time secrets
-  ├── llm_proxy_init()              Load API key + model from build-time secrets
-  ├── tool_registry_init()          Register tools, build tools JSON
+  ├── wifi_manager_init()
+  ├── http_proxy_init()
+  ├── telegram_bot_init()
+  ├── feishu_bot_init()
+  ├── llm_proxy_init()
+  ├── tool_registry_init()
+  ├── cron_service_init()
+  ├── heartbeat_init()
   ├── agent_loop_init()
-  ├── serial_cli_init()             Start REPL (works without WiFi)
-  │
-  ├── wifi_manager_start()          Connect using build-time credentials
-  │   └── wifi_manager_wait_connected(30s)
-  │
-  └── [if WiFi connected]
-      ├── telegram_bot_start()      Launch tg_poll task (Core 0)
-      ├── agent_loop_start()        Launch agent_loop task (Core 1)
-      ├── ws_server_start()         Start httpd on port 18789
-      └── outbound_dispatch task    Launch outbound task (Core 0)
+  ├── serial_cli_init()
+  ├── wifi_manager_start()
+  ├── if WiFi unavailable: wifi_onboard_start(captive)
+  └── if WiFi connected:
+      ├── wifi_onboard_start(admin)
+      ├── outbound dispatch task
+      ├── agent_loop_start()
+      ├── telegram_bot_start()
+      ├── feishu_bot_start()
+      ├── cron_service_start()
+      ├── heartbeat_start()
+      └── ws_server_start()
 ```
 
-If WiFi credentials are missing or connection times out, the CLI remains available for diagnostics.
+The serial CLI starts before WiFi so the device can still be inspected and reconfigured when network setup fails.
 
----
+## Serial CLI
 
-## Serial CLI Commands
+The CLI supports runtime configuration and diagnostics:
 
-The CLI provides debug and maintenance commands only. All configuration is done via `mimi_secrets.h`.
-
-| Command                        | Description                          |
-|--------------------------------|--------------------------------------|
-| `wifi_status`                  | Show connection status and IP        |
-| `memory_read`                  | Print MEMORY.md contents             |
-| `memory_write <CONTENT>`       | Overwrite MEMORY.md                  |
-| `session_list`                 | List all session files               |
-| `session_clear <CHAT_ID>`      | Delete a session file                |
-| `heap_info`                    | Show internal + PSRAM free bytes     |
-| `restart`                      | Reboot the device                    |
-| `help`                         | List all available commands           |
-
----
+| Command | Description |
+|---|---|
+| `wifi_set <SSID> <PASS>` | Save WiFi credentials |
+| `set_tg_token <TOKEN>` | Save Telegram token |
+| `set_feishu_creds <ID> <SECRET>` | Save Feishu credentials |
+| `set_api_key <KEY>` | Save LLM API key |
+| `set_model_provider <PROVIDER>` | Select `anthropic` or `openai` |
+| `set_model <MODEL>` | Save model name |
+| `set_proxy <HOST> <PORT>` | Save proxy settings |
+| `clear_proxy` | Clear proxy settings |
+| `set_search_key <KEY>` | Save Brave Search key |
+| `set_tavily_key <KEY>` | Save Tavily key |
+| `config_show` | Show masked config |
+| `config_reset` | Clear runtime app config |
+| `wifi_status` | Show WiFi state |
+| `memory_read` / `memory_write` | Inspect or overwrite `MEMORY.md` |
+| `session_list` / `session_clear` | Inspect or clear session files |
+| `heartbeat_trigger` | Manually trigger HEARTBEAT.md processing |
+| `cron_start` | Start the cron scheduler |
+| `heap_info` | Show internal RAM and PSRAM |
+| `restart` | Reboot the device |
 
 ## Nanobot Reference Mapping
 
-| Nanobot Module              | MimiClaw Equivalent            | Notes                        |
-|-----------------------------|--------------------------------|------------------------------|
-| `agent/loop.py`             | `agent/agent_loop.c`           | ReAct loop with tool use     |
-| `agent/context.py`          | `agent/context_builder.c`      | Loads SOUL.md + USER.md + memory + tool guidance |
-| `agent/memory.py`           | `memory/memory_store.c`        | MEMORY.md + daily notes      |
-| `session/manager.py`        | `memory/session_mgr.c`         | JSONL per chat, ring buffer  |
-| `channels/telegram.py`      | `telegram/telegram_bot.c`      | Raw HTTP, no python-telegram-bot |
-| `bus/events.py` + `queue.py`| `bus/message_bus.c`            | FreeRTOS queues vs asyncio   |
-| `providers/litellm_provider.py` | `llm/llm_proxy.c`         | Direct Anthropic API only    |
-| `config/schema.py`          | `mimi_config.h` + `mimi_secrets.h` | Build-time secrets only  |
-| `cli/commands.py`           | `cli/serial_cli.c`             | esp_console REPL             |
-| `agent/tools/*`             | `tools/tool_registry.c` + `tool_web_search.c` | web_search via Brave API |
-| `agent/subagent.py`         | *(not yet implemented)*        | See TODO.md                  |
-| `agent/skills.py`           | *(not yet implemented)*        | See TODO.md                  |
-| `cron/service.py`           | *(not yet implemented)*        | See TODO.md                  |
-| `heartbeat/service.py`      | *(not yet implemented)*        | See TODO.md                  |
+| Nanobot Module | MimiClaw Equivalent | Notes |
+|---|---|---|
+| `agent/loop.py` | `agent/agent_loop.c` | ReAct loop with tool use |
+| `agent/context.py` | `agent/context_builder.c` | Config, memory, skills, and tool guidance |
+| `agent/memory.py` | `memory/memory_store.c` | `MEMORY.md` and daily notes |
+| `session/manager.py` | `memory/session_mgr.c` | JSONL per chat/session |
+| `channels/telegram.py` | `channels/telegram/telegram_bot.c` | Raw HTTP Telegram API |
+| `channels/feishu.py` | `channels/feishu/feishu_bot.c` | Feishu/Lark long connection |
+| `bus/events.py` + `queue.py` | `bus/message_bus.c` | FreeRTOS queues |
+| `providers/litellm_provider.py` | `llm/llm_proxy.c` | Direct Anthropic/OpenAI support |
+| `config/schema.py` | `mimi_config.h`, `mimi_secrets.h`, NVS | Build-time defaults plus runtime overrides |
+| `cli/commands.py` | `cli/serial_cli.c` | `esp_console` REPL |
+| `agent/tools/*` | `tools/tool_registry.c`, `tools/tool_*.c` | Search, time, files, cron, GPIO |
+| `agent/skills.py` | `skills/skill_loader.c` | Simplified SPIFFS markdown skills |
+| `cron/service.py` | `cron/cron_service.c` | Simplified at/every scheduler |
+| `heartbeat/service.py` | `heartbeat/heartbeat.c` | Periodic `HEARTBEAT.md` checks |
+| `agent/subagent.py` | Not implemented | Keep as future work only if needed |
