@@ -17,6 +17,7 @@
 namespace {
 
 constexpr size_t kMaxPacketBytes = 64;
+constexpr size_t kMinPhraseBytes = 12;
 constexpr size_t kQueueDepth = 8;
 constexpr int kSampleRate = 24000;
 constexpr int kSamplesPerFrame = 512;
@@ -32,12 +33,93 @@ static QueueHandle_t s_queue;
 static i2s_chan_handle_t s_i2s_tx;
 static bool s_ready;
 
-static size_t packet_length(const char *text, size_t remaining)
+enum class boundary_t {
+    none,
+    word,
+    clause,
+    sentence,
+};
+
+struct phrase_t {
+    size_t length;
+    int pause_ms;
+};
+
+static size_t utf8_codepoint_bytes(const unsigned char lead)
 {
-    size_t length = std::min(remaining, kMaxPacketBytes);
-    if (length == remaining) return length;
-    while (length > 0 && (static_cast<unsigned char>(text[length]) & 0xc0) == 0x80) --length;
-    return length > 0 ? length : std::min(remaining, kMaxPacketBytes);
+    if ((lead & 0x80) == 0) return 1;
+    if ((lead & 0xe0) == 0xc0) return 2;
+    if ((lead & 0xf0) == 0xe0) return 3;
+    if ((lead & 0xf8) == 0xf0) return 4;
+    return 1;
+}
+
+static bool codepoint_is(const char *text, size_t bytes, const char *literal)
+{
+    return strlen(literal) == bytes && memcmp(text, literal, bytes) == 0;
+}
+
+static boundary_t classify_boundary(const char *text, size_t bytes)
+{
+    if (codepoint_is(text, bytes, "。") || codepoint_is(text, bytes, "！") ||
+        codepoint_is(text, bytes, "？") || codepoint_is(text, bytes, "；") ||
+        codepoint_is(text, bytes, ".") || codepoint_is(text, bytes, "!") ||
+        codepoint_is(text, bytes, "?") || codepoint_is(text, bytes, ";") ||
+        codepoint_is(text, bytes, "\n")) {
+        return boundary_t::sentence;
+    }
+    if (codepoint_is(text, bytes, "，") || codepoint_is(text, bytes, "、") ||
+        codepoint_is(text, bytes, "：") || codepoint_is(text, bytes, ",") ||
+        codepoint_is(text, bytes, ":")) {
+        return boundary_t::clause;
+    }
+    if (codepoint_is(text, bytes, " ") || codepoint_is(text, bytes, "\t")) {
+        return boundary_t::word;
+    }
+    return boundary_t::none;
+}
+
+static int pause_for_boundary(boundary_t boundary)
+{
+    switch (boundary) {
+        case boundary_t::sentence: return 260;
+        case boundary_t::clause: return 120;
+        case boundary_t::word: return 70;
+        default: return 35;
+    }
+}
+
+static phrase_t next_phrase(const char *text, size_t remaining)
+{
+    const size_t limit = std::min(remaining, kMaxPacketBytes);
+    size_t safe_end = 0;
+    size_t clause_end = 0;
+    size_t word_end = 0;
+    boundary_t final_boundary = boundary_t::none;
+
+    for (size_t offset = 0; offset < limit;) {
+        size_t bytes = utf8_codepoint_bytes(static_cast<unsigned char>(text[offset]));
+        if (offset + bytes > limit || offset + bytes > remaining) break;
+
+        const boundary_t boundary = classify_boundary(text + offset, bytes);
+        safe_end = offset + bytes;
+        final_boundary = boundary;
+        if (safe_end >= kMinPhraseBytes) {
+            if (boundary == boundary_t::sentence) {
+                return {safe_end, pause_for_boundary(boundary)};
+            }
+            if (boundary == boundary_t::clause) clause_end = safe_end;
+            if (boundary == boundary_t::word) word_end = safe_end;
+        }
+        offset = safe_end;
+    }
+
+    if (remaining <= kMaxPacketBytes) {
+        return {safe_end, pause_for_boundary(final_boundary)};
+    }
+    if (clause_end) return {clause_end, pause_for_boundary(boundary_t::clause)};
+    if (word_end) return {word_end, pause_for_boundary(boundary_t::word)};
+    return {safe_end, pause_for_boundary(boundary_t::none)};
 }
 
 static ggwave_Parameters encoder_parameters(size_t payload_length)
@@ -168,10 +250,11 @@ static void ggwave_player_task(void *)
 
         const size_t text_length = strlen(item.text);
         for (size_t offset = 0; offset < text_length;) {
-            const size_t length = packet_length(item.text + offset, text_length - offset);
-            transmit_packet(item.text + offset, length);
-            offset += length;
-            if (offset < text_length) vTaskDelay(pdMS_TO_TICKS(80));
+            const phrase_t phrase = next_phrase(item.text + offset, text_length - offset);
+            if (phrase.length == 0) break;
+            transmit_packet(item.text + offset, phrase.length);
+            offset += phrase.length;
+            if (offset < text_length) vTaskDelay(pdMS_TO_TICKS(phrase.pause_ms));
         }
         free(item.text);
     }
