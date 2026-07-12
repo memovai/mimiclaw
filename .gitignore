@@ -1,5 +1,6 @@
 # Build output
 build/
+build_*/
 dist/
 tmp/
 releases/
@@ -10,6 +11,11 @@ sdkconfig.old
 dependencies.lock
 components/
 managed_components/
+
+# Vendored MIT component used by the GPIO16 acoustic-data transmitter.
+!components/
+!components/ggwave/
+!components/ggwave/**
 
 # Generated headers
 main/assets/lang_config.h

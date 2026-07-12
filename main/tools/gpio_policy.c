@@ -1,4 +1,5 @@
 #include "tools/gpio_policy.h"
+#include "mimi_config.h"
 
 #include "driver/gpio.h"
 
@@ -97,6 +98,16 @@ bool gpio_policy_pin_is_allowed(int pin)
 #endif
 }
 
+bool gpio_policy_pin_is_output_allowed(int pin)
+{
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    if (pin == 0) {
+        return false;
+    }
+#endif
+    return gpio_policy_pin_is_allowed(pin);
+}
+
 bool gpio_policy_pin_forbidden_hint(int pin, char *result, size_t result_len)
 {
 #if defined(CONFIG_IDF_TARGET_ESP32)
@@ -107,6 +118,17 @@ bool gpio_policy_pin_forbidden_hint(int pin, char *result, size_t result_len)
         return true;
     }
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    if (pin == MIMI_AUDIO_BCLK_GPIO || pin == MIMI_AUDIO_LRCLK_GPIO ||
+        pin == MIMI_AUDIO_DIN_GPIO) {
+        snprintf(result, result_len,
+                 "Error: pin %d is reserved for NS4168 I2S audio", pin);
+        return true;
+    }
+    if (pin == 0) {
+        snprintf(result, result_len,
+                 "Error: pin 0 is the BOOT button on ESP32-S3; use gpio_read, not gpio_write");
+        return true;
+    }
     if (pin == 19 || pin == 20) {
         snprintf(result, result_len,
                  "Error: pin %d is reserved for ESP32-S3 USB Serial/JTAG (GPIO19/20); choose a different pin",

@@ -291,6 +291,7 @@ static void agent_loop_task(void *arg)
             strncpy(out.channel, msg.channel, sizeof(out.channel) - 1);
             strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id) - 1);
             out.content = final_text;  /* transfer ownership */
+            out.transmit_audio = 1;
             ESP_LOGI(TAG, "Queue final response to %s:%s (%d bytes)",
                      out.channel, out.chat_id, (int)strlen(final_text));
             if (message_bus_push_outbound(&out) != ESP_OK) {

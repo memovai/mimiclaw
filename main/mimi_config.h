@@ -123,6 +123,11 @@
 
 /* GPIO */
 #define MIMI_GPIO_CONFIG_SECTION     1   /* enable GPIO tools */
+#define MIMI_RGB_LED_GPIO            48  /* onboard WS2812 data pin on this board */
+#define MIMI_RGB_LED_COUNT           1
+#define MIMI_AUDIO_BCLK_GPIO         16  /* NS4168 I2S bit clock */
+#define MIMI_AUDIO_LRCLK_GPIO        17  /* NS4168 I2S left/right clock */
+#define MIMI_AUDIO_DIN_GPIO          18  /* NS4168 I2S serial data */
 
 /* Skills */
 #define MIMI_SKILLS_PREFIX           MIMI_SPIFFS_BASE "/skills/"

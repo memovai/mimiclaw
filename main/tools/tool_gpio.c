@@ -11,6 +11,20 @@
 
 static const char *TAG = "tool_gpio";
 
+static esp_err_t configure_input_pin(int pin)
+{
+    esp_err_t err = gpio_set_direction(pin, GPIO_MODE_INPUT);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if (pin == 0) {
+        return gpio_set_pull_mode(GPIO_NUM_0, GPIO_PULLUP_ONLY);
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t tool_gpio_init(void)
 {
     ESP_LOGI(TAG, "GPIO tool initialized (pin range %d-%d)",
@@ -43,7 +57,7 @@ esp_err_t tool_gpio_write_execute(const char *input_json, char *output, size_t o
     int pin = (int)pin_obj->valuedouble;
     int state = (int)state_obj->valuedouble;
 
-    if (!gpio_policy_pin_is_allowed(pin)) {
+    if (!gpio_policy_pin_is_output_allowed(pin)) {
         if (gpio_policy_pin_forbidden_hint(pin, output, output_size)) {
             cJSON_Delete(root);
             return ESP_ERR_INVALID_ARG;
@@ -105,7 +119,11 @@ esp_err_t tool_gpio_read_execute(const char *input_json, char *output, size_t ou
     }
 
     /* Enable input path, then read level */
-    gpio_set_direction(pin, GPIO_MODE_INPUT);
+    if (configure_input_pin(pin) != ESP_OK) {
+        snprintf(output, output_size, "Error: failed to configure/read pin %d", pin);
+        cJSON_Delete(root);
+        return ESP_FAIL;
+    }
     int level = gpio_get_level(pin);
 
     snprintf(output, output_size, "Pin %d = %s", pin, level ? "HIGH" : "LOW");
@@ -154,7 +172,10 @@ esp_err_t tool_gpio_read_all_execute(const char *input_json, char *output, size_
                 continue;
             }
 
-            gpio_set_direction((int)value, GPIO_MODE_INPUT);
+            if (configure_input_pin((int)value) != ESP_OK) {
+                csv_cursor = endptr;
+                continue;
+            }
             int level = gpio_get_level((int)value);
 
             written = snprintf(cursor, remaining, "%s%d=%s",
@@ -171,7 +192,7 @@ esp_err_t tool_gpio_read_all_execute(const char *input_json, char *output, size_
         for (int pin = MIMI_GPIO_MIN_PIN; pin <= MIMI_GPIO_MAX_PIN; pin++) {
             if (!gpio_policy_pin_is_allowed(pin)) continue;
 
-            gpio_set_direction(pin, GPIO_MODE_INPUT);
+            if (configure_input_pin(pin) != ESP_OK) continue;
             int level = gpio_get_level(pin);
 
             written = snprintf(cursor, remaining, "%s%d=%s",

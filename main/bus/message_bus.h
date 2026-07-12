@@ -16,6 +16,7 @@ typedef struct {
     char channel[16];       /* "telegram", "websocket", "cli" */
     char chat_id[96];       /* Telegram/Feishu chat_id, open_id, or WS client id */
     char *content;          /* Heap-allocated message text (caller must free) */
+    uint8_t transmit_audio; /* Encode this successful outbound message as ggwave */
 } mimi_msg_t;
 
 /**

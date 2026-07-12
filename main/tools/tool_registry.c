@@ -5,6 +5,7 @@
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
 #include "tools/tool_gpio.h"
+#include "tools/tool_rgb_led.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -12,7 +13,7 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 16
+#define MAX_TOOLS 64
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
@@ -213,6 +214,68 @@ esp_err_t tool_registry_init(void)
         .execute = tool_gpio_read_all_execute,
     };
     register_tool(&ga);
+
+    /* Register RGB LED tool */
+    tool_rgb_led_init();
+
+    mimi_tool_t rgb = {
+        .name = "rgb_led_set",
+        .description = "Control the device light (灯/小灯/彩灯): set color, hex color, brightness, brightness percent, relative brightness, turn it on/off. Users may just say light/lamp/灯.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"color\":{\"type\":\"string\",\"description\":\"Optional color name; prefer English constants red, green, blue, white, cool_white, warm_white, yellow, cyan, purple, orange, pink, rose, teal, on, off\"},"
+            "\"hex\":{\"type\":\"string\",\"description\":\"Optional hex color like #ff00aa\"},"
+            "\"r\":{\"type\":\"integer\",\"description\":\"Red 0-255\"},"
+            "\"g\":{\"type\":\"integer\",\"description\":\"Green 0-255\"},"
+            "\"b\":{\"type\":\"integer\",\"description\":\"Blue 0-255\"},"
+            "\"brightness\":{\"type\":\"integer\",\"description\":\"Optional brightness 0-255\"},"
+            "\"brightness_percent\":{\"type\":\"integer\",\"description\":\"Optional brightness 0-100 percent\"},"
+            "\"delta_brightness\":{\"type\":\"integer\",\"description\":\"Optional relative brightness change, e.g. 32 or -32\"}},"
+            "\"required\":[]}",
+        .execute = tool_rgb_led_set_execute,
+    };
+    register_tool(&rgb);
+
+    mimi_tool_t rgb_effect = {
+        .name = "rgb_led_effect",
+        .description = "Start or stop a device light effect: blink, alternate, breathe, fade, rainbow, pulse, heartbeat, sparkle, confetti, police, stop. Use alternate with color2 for phrases like red-blue alternating.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"effect\":{\"type\":\"string\",\"description\":\"blink, alternate, breathe, fade, rainbow, pulse, heartbeat, sparkle, confetti, police, or stop\"},"
+            "\"color\":{\"type\":\"string\",\"description\":\"Optional first color name\"},"
+            "\"color2\":{\"type\":\"string\",\"description\":\"Optional second color name for alternate/fade/police-like effects\"},"
+            "\"hex\":{\"type\":\"string\",\"description\":\"Optional hex color like #ff00aa\"},"
+            "\"hex2\":{\"type\":\"string\",\"description\":\"Optional second hex color like #0000ff\"},"
+            "\"brightness\":{\"type\":\"integer\",\"description\":\"Optional brightness 0-255\"},"
+            "\"brightness_percent\":{\"type\":\"integer\",\"description\":\"Optional brightness 0-100 percent\"},"
+            "\"speed_ms\":{\"type\":\"integer\",\"description\":\"Optional effect step speed in milliseconds, 40-5000\"}},"
+            "\"required\":[\"effect\"]}",
+        .execute = tool_rgb_led_effect_execute,
+    };
+    register_tool(&rgb_effect);
+
+    mimi_tool_t light_signal = {
+        .name = "light_signal",
+        .description = "Set the device light to a semantic state: idle, thinking, tool, success, warning, error, urgent, message, important, offline, telegram_offline, find_me, sleep, off. Prefer this for status/notification wording.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"signal\":{\"type\":\"string\",\"description\":\"Semantic light state, e.g. idle/thinking/success/error/find_me/off\"},"
+            "\"brightness_percent\":{\"type\":\"integer\",\"description\":\"Optional brightness 0-100 percent override\"}},"
+            "\"required\":[\"signal\"]}",
+        .execute = tool_light_signal_execute,
+    };
+    register_tool(&light_signal);
+
+    mimi_tool_t rgb_status = {
+        .name = "rgb_led_status",
+        .description = "Get current device light state, color, brightness, and last non-off color.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{},"
+            "\"required\":[]}",
+        .execute = tool_rgb_led_status_execute,
+    };
+    register_tool(&rgb_status);
 
     build_tools_json();
 
