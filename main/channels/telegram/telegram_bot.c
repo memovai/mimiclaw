@@ -6,8 +6,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_system.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "nvs.h"
@@ -16,6 +18,7 @@
 static const char *TAG = "telegram";
 
 static char s_bot_token[128] = MIMI_SECRET_TG_TOKEN;
+static char s_groq_key[128] = MIMI_SECRET_GROQ_KEY;
 static int64_t s_update_offset = 0;
 static int64_t s_last_saved_offset = -1;
 static int64_t s_last_offset_save_us = 0;
@@ -24,6 +27,7 @@ static int64_t s_last_offset_save_us = 0;
 #define TG_DEDUP_CACHE_SIZE          64
 #define TG_OFFSET_SAVE_INTERVAL_US   (5LL * 1000 * 1000)
 #define TG_OFFSET_SAVE_STEP          10
+#define TG_MAX_CONSECUTIVE_FAILURES  5
 
 static uint64_t s_seen_msg_keys[TG_DEDUP_CACHE_SIZE] = {0};
 static size_t s_seen_msg_idx = 0;
@@ -250,6 +254,287 @@ static char *tg_api_call(const char *method, const char *post_data)
     return tg_api_call_direct(method, post_data);
 }
 
+static uint8_t *https_get_bytes_direct(const char *url, size_t *out_len)
+{
+    *out_len = 0;
+    http_resp_t resp = {
+        .buf = calloc(1, 4096),
+        .len = 0,
+        .cap = 4096,
+    };
+    if (!resp.buf) return NULL;
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .event_handler = http_event_handler,
+        .user_data = &resp,
+        .timeout_ms = 60000,
+        .buffer_size = 4096,
+        .buffer_size_tx = 2048,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        free(resp.buf);
+        return NULL;
+    }
+    esp_err_t err = esp_http_client_perform(client);
+    esp_http_client_cleanup(client);
+    if (err != ESP_OK || resp.len == 0) {
+        ESP_LOGE(TAG, "HTTP download failed: %s", esp_err_to_name(err));
+        free(resp.buf);
+        return NULL;
+    }
+    *out_len = resp.len;
+    return (uint8_t *)resp.buf;
+}
+
+static uint8_t *tg_download_file(const char *file_path, size_t *out_len)
+{
+    char url[384];
+    snprintf(url, sizeof(url), "https://api.telegram.org/file/bot%s/%s", s_bot_token, file_path);
+
+    if (!http_proxy_is_enabled()) {
+        return https_get_bytes_direct(url, out_len);
+    }
+
+    proxy_conn_t *conn = proxy_conn_open("api.telegram.org", 443, 60000);
+    if (!conn) return NULL;
+
+    char header[512];
+    int hlen = snprintf(header, sizeof(header),
+        "GET /file/bot%s/%s HTTP/1.1\r\n"
+        "Host: api.telegram.org\r\n"
+        "Connection: close\r\n\r\n",
+        s_bot_token, file_path);
+
+    if (proxy_conn_write(conn, header, hlen) < 0) {
+        proxy_conn_close(conn);
+        return NULL;
+    }
+
+    size_t cap = 4096, len = 0;
+    char *buf = calloc(1, cap);
+    if (!buf) {
+        proxy_conn_close(conn);
+        return NULL;
+    }
+    while (1) {
+        if (len + 2048 >= cap) {
+            cap *= 2;
+            char *tmp = realloc(buf, cap);
+            if (!tmp) break;
+            buf = tmp;
+        }
+        int n = proxy_conn_read(conn, buf + len, cap - len - 1, 60000);
+        if (n <= 0) break;
+        len += n;
+        if (len > MIMI_TG_VOICE_MAX_BYTES + 2048) break;
+    }
+    proxy_conn_close(conn);
+
+    char *body = strstr(buf, "\r\n\r\n");
+    if (!body) {
+        free(buf);
+        return NULL;
+    }
+    body += 4;
+    size_t body_len = len - (size_t)(body - buf);
+    memmove(buf, body, body_len);
+    *out_len = body_len;
+    return (uint8_t *)buf;
+}
+
+static char *tg_get_file_path(const char *file_id)
+{
+    char method[256];
+    snprintf(method, sizeof(method), "getFile?file_id=%s", file_id);
+    char *resp = tg_api_call(method, NULL);
+    if (!resp) return NULL;
+
+    char *path = NULL;
+    cJSON *root = cJSON_Parse(resp);
+    if (root) {
+        cJSON *result = cJSON_GetObjectItem(root, "result");
+        cJSON *file_path = result ? cJSON_GetObjectItem(result, "file_path") : NULL;
+        if (cJSON_IsString(file_path)) {
+            path = strdup(file_path->valuestring);
+        }
+        cJSON_Delete(root);
+    }
+    free(resp);
+    return path;
+}
+
+static char *groq_api_call(const uint8_t *audio, size_t audio_len)
+{
+    const char *boundary = "----mimiclaw-groq";
+    const char *head_fmt =
+        "--%s\r\n"
+        "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
+        "whisper-large-v3\r\n"
+        "--%s\r\n"
+        "Content-Disposition: form-data; name=\"file\"; filename=\"voice.ogg\"\r\n"
+        "Content-Type: audio/ogg\r\n\r\n";
+    const char *tail_fmt = "\r\n--%s--\r\n";
+
+    int head_len = snprintf(NULL, 0, head_fmt, boundary, boundary);
+    int tail_len = snprintf(NULL, 0, tail_fmt, boundary);
+    size_t body_len = (size_t)head_len + audio_len + (size_t)tail_len;
+    char *body = malloc(body_len + 1);
+    if (!body) return NULL;
+
+    snprintf(body, (size_t)head_len + 1, head_fmt, boundary, boundary);
+    memcpy(body + head_len, audio, audio_len);
+    snprintf(body + head_len + audio_len, (size_t)tail_len + 1, tail_fmt, boundary);
+
+    char ctype[96];
+    snprintf(ctype, sizeof(ctype), "multipart/form-data; boundary=%s", boundary);
+
+    if (http_proxy_is_enabled()) {
+        proxy_conn_t *conn = proxy_conn_open("api.groq.com", 443, 60000);
+        if (!conn) {
+            free(body);
+            return NULL;
+        }
+
+        char header[512];
+        int hlen = snprintf(header, sizeof(header),
+            "POST /openai/v1/audio/transcriptions HTTP/1.1\r\n"
+            "Host: api.groq.com\r\n"
+            "Authorization: Bearer %s\r\n"
+            "Content-Type: %s\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n\r\n",
+            s_groq_key, ctype, (int)body_len);
+
+        bool ok = proxy_conn_write(conn, header, hlen) >= 0 &&
+                  proxy_conn_write(conn, body, (int)body_len) >= 0;
+        free(body);
+        if (!ok) {
+            proxy_conn_close(conn);
+            return NULL;
+        }
+
+        size_t cap = 4096, len = 0;
+        char *buf = calloc(1, cap);
+        if (!buf) {
+            proxy_conn_close(conn);
+            return NULL;
+        }
+        while (1) {
+            if (len + 1024 >= cap) {
+                cap *= 2;
+                char *tmp = realloc(buf, cap);
+                if (!tmp) break;
+                buf = tmp;
+            }
+            int n = proxy_conn_read(conn, buf + len, cap - len - 1, 60000);
+            if (n <= 0) break;
+            len += n;
+        }
+        proxy_conn_close(conn);
+        buf[len] = '\0';
+        char *json = strstr(buf, "\r\n\r\n");
+        char *result = json ? strdup(json + 4) : NULL;
+        free(buf);
+        return result;
+    }
+
+    http_resp_t resp = {
+        .buf = calloc(1, 4096),
+        .len = 0,
+        .cap = 4096,
+    };
+    if (!resp.buf) {
+        free(body);
+        return NULL;
+    }
+
+    esp_http_client_config_t config = {
+        .url = "https://api.groq.com/openai/v1/audio/transcriptions",
+        .event_handler = http_event_handler,
+        .user_data = &resp,
+        .timeout_ms = 60000,
+        .buffer_size = 4096,
+        .buffer_size_tx = 4096,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        free(body);
+        free(resp.buf);
+        return NULL;
+    }
+    char auth[160];
+    snprintf(auth, sizeof(auth), "Bearer %s", s_groq_key);
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Authorization", auth);
+    esp_http_client_set_header(client, "Content-Type", ctype);
+    esp_http_client_set_post_field(client, body, body_len);
+    esp_err_t err = esp_http_client_perform(client);
+    esp_http_client_cleanup(client);
+    free(body);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Groq request failed: %s", esp_err_to_name(err));
+        free(resp.buf);
+        return NULL;
+    }
+    return resp.buf;
+}
+
+static char *transcribe_voice_file_id(const char *file_id)
+{
+    if (s_groq_key[0] == '\0') {
+        ESP_LOGW(TAG, "Drop voice: no Groq key. Use CLI: set_groq_key <KEY>");
+        return NULL;
+    }
+
+    char *file_path = tg_get_file_path(file_id);
+    if (!file_path) {
+        ESP_LOGW(TAG, "Telegram getFile failed for voice");
+        return NULL;
+    }
+
+    size_t audio_len = 0;
+    uint8_t *audio = tg_download_file(file_path, &audio_len);
+    free(file_path);
+    if (!audio) {
+        ESP_LOGW(TAG, "Telegram voice download failed");
+        return NULL;
+    }
+    if (audio_len > MIMI_TG_VOICE_MAX_BYTES) {
+        ESP_LOGW(TAG, "Drop voice: %d bytes exceeds limit", (int)audio_len);
+        free(audio);
+        return NULL;
+    }
+
+    ESP_LOGI(TAG, "Transcribing Telegram voice (%d bytes)", (int)audio_len);
+    char *resp = groq_api_call(audio, audio_len);
+    free(audio);
+    if (!resp) return NULL;
+
+    char *text = NULL;
+    cJSON *root = cJSON_Parse(resp);
+    if (root) {
+        cJSON *text_item = cJSON_GetObjectItem(root, "text");
+        if (cJSON_IsString(text_item)) {
+            text = strdup(text_item->valuestring);
+        } else {
+            cJSON *error = cJSON_GetObjectItem(root, "error");
+            char *err_json = error ? cJSON_PrintUnformatted(error) : NULL;
+            ESP_LOGW(TAG, "Groq transcription failed: %.160s", err_json ? err_json : resp);
+            free(err_json);
+        }
+        cJSON_Delete(root);
+    }
+    free(resp);
+    return text;
+}
+
 static bool tg_response_is_ok(const char *resp, const char **out_desc)
 {
     if (out_desc) {
@@ -318,9 +603,6 @@ static void process_updates(const char *json_str)
         cJSON *message = cJSON_GetObjectItem(update, "message");
         if (!message) continue;
 
-        cJSON *text = cJSON_GetObjectItem(message, "text");
-        if (!text || !cJSON_IsString(text)) continue;
-
         cJSON *chat = cJSON_GetObjectItem(message, "chat");
         if (!chat) continue;
 
@@ -353,20 +635,50 @@ static void process_updates(const char *json_str)
             seen_msg_insert(msg_key);
         }
 
+        char *owned_content = NULL;
+        const char *content = NULL;
+        cJSON *text = cJSON_GetObjectItem(message, "text");
+        if (cJSON_IsString(text)) {
+            content = text->valuestring;
+        } else {
+            cJSON *voice = cJSON_GetObjectItem(message, "voice");
+            cJSON *file_id = voice ? cJSON_GetObjectItem(voice, "file_id") : NULL;
+            if (cJSON_IsString(file_id)) {
+                cJSON *file_size = cJSON_GetObjectItem(voice, "file_size");
+                if (cJSON_IsNumber(file_size) && file_size->valuedouble > MIMI_TG_VOICE_MAX_BYTES) {
+                    ESP_LOGW(TAG, "Drop voice: %.0f bytes exceeds limit", file_size->valuedouble);
+                    telegram_send_message(chat_id_str, "语音太长了，先发短一点的试试。");
+                    continue;
+                }
+                /* ponytail: one in-memory OGG upload; stream chunks if long voice notes matter. */
+                owned_content = transcribe_voice_file_id(file_id->valuestring);
+                content = owned_content;
+                if (!content) {
+                    telegram_send_message(chat_id_str, "语音转写失败了，稍后再试一次。");
+                }
+            }
+        }
+        if (!content || !content[0]) {
+            free(owned_content);
+            continue;
+        }
+
         ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
-                 uid, msg_id_val, chat_id_str, text->valuestring);
+                 uid, msg_id_val, chat_id_str, content);
 
         /* Push to inbound bus */
         mimi_msg_t msg = {0};
         strncpy(msg.channel, MIMI_CHAN_TELEGRAM, sizeof(msg.channel) - 1);
         strncpy(msg.chat_id, chat_id_str, sizeof(msg.chat_id) - 1);
-        msg.content = strdup(text->valuestring);
+        msg.content = owned_content ? owned_content : strdup(content);
         if (msg.content) {
             if (message_bus_push_inbound(&msg) != ESP_OK) {
                 ESP_LOGW(TAG, "Inbound queue full, drop telegram message");
                 free(msg.content);
             }
+            owned_content = NULL;
         }
+        free(owned_content);
     }
 
     cJSON_Delete(root);
@@ -375,6 +687,7 @@ static void process_updates(const char *json_str)
 static void telegram_poll_task(void *arg)
 {
     ESP_LOGI(TAG, "Telegram polling task started");
+    int consecutive_failures = 0;
 
     while (1) {
         if (s_bot_token[0] == '\0') {
@@ -390,9 +703,17 @@ static void telegram_poll_task(void *arg)
 
         char *resp = tg_api_call(params, NULL);
         if (resp) {
+            consecutive_failures = 0;
             process_updates(resp);
             free(resp);
         } else {
+            consecutive_failures++;
+            ESP_LOGW(TAG, "Telegram poll failed (%d/%d)",
+                     consecutive_failures, TG_MAX_CONSECUTIVE_FAILURES);
+            if (consecutive_failures >= TG_MAX_CONSECUTIVE_FAILURES) {
+                ESP_LOGE(TAG, "Telegram polling unhealthy, restarting device");
+                esp_restart();
+            }
             /* Back off on error */
             vTaskDelay(pdMS_TO_TICKS(3000));
         }
@@ -411,6 +732,11 @@ esp_err_t telegram_bot_init(void)
         if (nvs_get_str(nvs, MIMI_NVS_KEY_TG_TOKEN, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_bot_token, tmp, sizeof(s_bot_token) - 1);
         }
+        len = sizeof(tmp);
+        memset(tmp, 0, sizeof(tmp));
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_GROQ_KEY, tmp, &len) == ESP_OK && tmp[0]) {
+            strncpy(s_groq_key, tmp, sizeof(s_groq_key) - 1);
+        }
 
         int64_t offset = 0;
         if (nvs_get_i64(nvs, TG_OFFSET_NVS_KEY, &offset) == ESP_OK && offset > 0) {
@@ -427,6 +753,9 @@ esp_err_t telegram_bot_init(void)
         ESP_LOGI(TAG, "Telegram bot token loaded (len=%d)", (int)strlen(s_bot_token));
     } else {
         ESP_LOGW(TAG, "No Telegram bot token. Use CLI: set_tg_token <TOKEN>");
+    }
+    if (s_groq_key[0]) {
+        ESP_LOGI(TAG, "Groq key loaded for Telegram voice");
     }
     return ESP_OK;
 }
@@ -559,5 +888,18 @@ esp_err_t telegram_set_token(const char *token)
 
     strncpy(s_bot_token, token, sizeof(s_bot_token) - 1);
     ESP_LOGI(TAG, "Telegram bot token saved");
+    return ESP_OK;
+}
+
+esp_err_t telegram_set_groq_key(const char *key)
+{
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_GROQ_KEY, key));
+    ESP_ERROR_CHECK(nvs_commit(nvs));
+    nvs_close(nvs);
+
+    strncpy(s_groq_key, key, sizeof(s_groq_key) - 1);
+    ESP_LOGI(TAG, "Groq key saved");
     return ESP_OK;
 }
