@@ -17,7 +17,7 @@
 namespace {
 
 constexpr size_t kMaxPacketBytes = 64;
-constexpr size_t kMinPhraseBytes = 12;
+constexpr size_t kMinPhraseBytes = 30;
 constexpr size_t kQueueDepth = 8;
 constexpr int kSampleRate = 24000;
 constexpr int kSamplesPerFrame = 512;
@@ -82,10 +82,10 @@ static boundary_t classify_boundary(const char *text, size_t bytes)
 static int pause_for_boundary(boundary_t boundary)
 {
     switch (boundary) {
-        case boundary_t::sentence: return 260;
-        case boundary_t::clause: return 120;
-        case boundary_t::word: return 70;
-        default: return 35;
+        case boundary_t::sentence: return 140;
+        case boundary_t::clause: return 70;
+        case boundary_t::word: return 40;
+        default: return 20;
     }
 }
 
@@ -162,6 +162,12 @@ static esp_err_t init_i2s()
         s_i2s_tx = nullptr;
         return err;
     }
+    err = i2s_channel_enable(s_i2s_tx);
+    if (err != ESP_OK) {
+        i2s_del_channel(s_i2s_tx);
+        s_i2s_tx = nullptr;
+        return err;
+    }
     return ESP_OK;
 }
 
@@ -214,6 +220,21 @@ static bool write_mono_as_stereo(const int16_t *mono, size_t sample_count)
     return true;
 }
 
+static void write_digital_silence(int duration_ms)
+{
+    const int16_t silence[kMonoChunkSamples * 2] = {};
+    size_t samples_remaining = static_cast<size_t>(kSampleRate) * duration_ms / 1000;
+    while (samples_remaining > 0) {
+        const size_t samples = std::min(kMonoChunkSamples, samples_remaining);
+        size_t bytes_written = 0;
+        if (i2s_channel_write(s_i2s_tx, silence, samples * 2 * sizeof(int16_t),
+                              &bytes_written, portMAX_DELAY) != ESP_OK) {
+            break;
+        }
+        samples_remaining -= samples;
+    }
+}
+
 static void transmit_packet(const char *payload, size_t payload_length)
 {
     GGWave encoder;
@@ -233,13 +254,7 @@ static void transmit_packet(const char *payload, size_t payload_length)
     ESP_LOGI(TAG, "Transmitting ggwave packet: %d bytes, %.2f seconds",
              static_cast<int>(payload_length),
              static_cast<double>(waveform_bytes / sizeof(int16_t)) / kSampleRate);
-    if (i2s_channel_enable(s_i2s_tx) != ESP_OK) return;
     write_mono_as_stereo(waveform, waveform_bytes / sizeof(int16_t));
-
-    const int16_t silence[kMonoChunkSamples * 2] = {};
-    size_t ignored = 0;
-    i2s_channel_write(s_i2s_tx, silence, sizeof(silence), &ignored, portMAX_DELAY);
-    i2s_channel_disable(s_i2s_tx);
 }
 
 static void ggwave_player_task(void *)
@@ -254,8 +269,9 @@ static void ggwave_player_task(void *)
             if (phrase.length == 0) break;
             transmit_packet(item.text + offset, phrase.length);
             offset += phrase.length;
-            if (offset < text_length) vTaskDelay(pdMS_TO_TICKS(phrase.pause_ms));
+            if (offset < text_length) write_digital_silence(phrase.pause_ms);
         }
+        write_digital_silence(60);
         free(item.text);
     }
 }
