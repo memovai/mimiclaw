@@ -23,6 +23,11 @@ When the user asks to:
 - ESP32 flash pins (6-11) are always blocked
 - If a pin is rejected, suggest an alternative within the allowed range
 
+## Board buttons
+- BOOT is GPIO0. It is input-only: released = HIGH, pressed = LOW.
+- BOOT was verified by the local BOOT-to-RGB test: each press changes the GPIO48 RGB LED color.
+- RST/EN resets the chip and is not readable as a GPIO input.
+
 ## Example
 User: "Check if the switch on pin 4 is on"
 → gpio_read {"pin": 4}

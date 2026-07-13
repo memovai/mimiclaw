@@ -76,6 +76,24 @@ static int cmd_set_tg_token(int argc, char **argv)
     return 0;
 }
 
+/* --- set_groq_key command --- */
+static struct {
+    struct arg_str *key;
+    struct arg_end *end;
+} groq_key_args;
+
+static int cmd_set_groq_key(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&groq_key_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, groq_key_args.end, argv[0]);
+        return 1;
+    }
+    telegram_set_groq_key(groq_key_args.key->sval[0]);
+    printf("Groq API key saved.\n");
+    return 0;
+}
+
 /* --- set_feishu_creds command --- */
 static struct {
     struct arg_str *app_id;
@@ -560,6 +578,7 @@ static int cmd_config_show(int argc, char **argv)
     print_config("WiFi SSID",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_SSID,     MIMI_SECRET_WIFI_SSID,  false);
     print_config("WiFi Pass",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_PASS,     MIMI_SECRET_WIFI_PASS,  true);
     print_config("TG Token",   MIMI_NVS_TG,     MIMI_NVS_KEY_TG_TOKEN, MIMI_SECRET_TG_TOKEN,   true);
+    print_config("Groq Key",   MIMI_NVS_TG,     MIMI_NVS_KEY_GROQ_KEY, MIMI_SECRET_GROQ_KEY,   true);
     print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_API_KEY,    true);
     print_config("Model",      MIMI_NVS_LLM,    MIMI_NVS_KEY_MODEL,    MIMI_SECRET_MODEL,      false);
     print_config("Provider",   MIMI_NVS_LLM,    MIMI_NVS_KEY_PROVIDER, MIMI_SECRET_MODEL_PROVIDER, false);
@@ -839,6 +858,18 @@ esp_err_t serial_cli_init(void)
         .argtable = &tg_token_args,
     };
     esp_console_cmd_register(&tg_token_cmd);
+
+    /* set_groq_key */
+    groq_key_args.key = arg_str1(NULL, NULL, "<key>", "Groq API key for Telegram voice transcription");
+    groq_key_args.end = arg_end(2);
+    const esp_console_cmd_t groq_key_cmd = {
+        .command = "set_groq_key",
+        .help = "Set Groq API key for Telegram voice transcription",
+        .hint = NULL,
+        .func = &cmd_set_groq_key,
+        .argtable = &groq_key_args,
+    };
+    esp_console_cmd_register(&groq_key_cmd);
 
     /* set_feishu_creds */
     feishu_creds_args.app_id = arg_str1(NULL, NULL, "<app_id>", "Feishu App ID");

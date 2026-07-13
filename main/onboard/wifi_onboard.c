@@ -18,10 +18,68 @@
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "lwip/ip4_addr.h"
 
 static const char *TAG = "onboard";
 static httpd_handle_t s_server = NULL;
 static bool s_captive_mode = false;
+static bool s_admin_active = false;
+static TaskHandle_t s_admin_timeout_task = NULL;
+static esp_netif_ip_info_t s_onboard_ap_ip_info;
+
+typedef struct {
+    uint8_t a;
+    uint8_t b;
+    uint8_t c;
+    uint8_t d;
+} onboard_ap_ip_candidate_t;
+
+static const onboard_ap_ip_candidate_t ONBOARD_AP_IP_CANDIDATES[] = {
+    {192, 168, 50, 1},
+    {192, 168, 60, 1},
+    {10, 10, 10, 1},
+    {192, 168, 4, 1},
+};
+
+static void make_ap_ip_info(const onboard_ap_ip_candidate_t *candidate,
+                            esp_netif_ip_info_t *ip_info)
+{
+    memset(ip_info, 0, sizeof(*ip_info));
+    IP4_ADDR(&ip_info->ip, candidate->a, candidate->b, candidate->c, candidate->d);
+    ip_info->gw = ip_info->ip;
+    IP4_ADDR(&ip_info->netmask, 255, 255, 255, 0);
+}
+
+static bool ip_same_subnet(const esp_ip4_addr_t *a,
+                           const esp_ip4_addr_t *b,
+                           const esp_ip4_addr_t *netmask)
+{
+    return (a->addr & netmask->addr) == (b->addr & netmask->addr);
+}
+
+static void choose_onboard_ap_ip(bool keep_sta, esp_netif_ip_info_t *ip_info)
+{
+    esp_netif_ip_info_t sta_ip_info = {0};
+    bool have_sta_ip = false;
+
+    if (keep_sta) {
+        esp_netif_t *sta_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        have_sta_ip = sta_netif &&
+                      esp_netif_get_ip_info(sta_netif, &sta_ip_info) == ESP_OK &&
+                      sta_ip_info.ip.addr != 0 &&
+                      sta_ip_info.netmask.addr != 0;
+    }
+
+    for (size_t i = 0; i < sizeof(ONBOARD_AP_IP_CANDIDATES) / sizeof(ONBOARD_AP_IP_CANDIDATES[0]); i++) {
+        make_ap_ip_info(&ONBOARD_AP_IP_CANDIDATES[i], ip_info);
+        if (!have_sta_ip || !ip_same_subnet(&ip_info->ip, &sta_ip_info.ip, &sta_ip_info.netmask)) {
+            return;
+        }
+    }
+
+    make_ap_ip_info(&ONBOARD_AP_IP_CANDIDATES[0], ip_info);
+    ESP_LOGW(TAG, "All onboarding AP candidates overlap STA subnet; using " IPSTR, IP2STR(&ip_info->ip));
+}
 
 static void json_add_effective_config(cJSON *root, const char *json_key,
                                       const char *ns, const char *nvs_key,
@@ -72,7 +130,7 @@ static void json_add_effective_config_u16(cJSON *root, const char *json_key,
 
 /* ── DNS hijack ─────────────────────────────────────────────────── */
 
-/* Minimal DNS response: always answer 192.168.4.1 */
+/* Minimal DNS response: always answer onboarding AP IP */
 static void dns_hijack_task(void *arg)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -124,7 +182,7 @@ static void dns_hijack_task(void *arg)
         resp[6] = 0x00;
         resp[7] = 0x01;
 
-        /* Append answer: pointer to name + A record with 192.168.4.1 */
+        /* Append answer: pointer to name + A record with onboarding AP IP */
         int off = len;
         resp[off++] = 0xC0;  /* pointer */
         resp[off++] = 0x0C;  /* offset to question name */
@@ -133,8 +191,10 @@ static void dns_hijack_task(void *arg)
         resp[off++] = 0x00; resp[off++] = 0x00;
         resp[off++] = 0x00; resp[off++] = 0x3C;  /* TTL = 60 */
         resp[off++] = 0x00; resp[off++] = 0x04;  /* data length = 4 */
-        resp[off++] = 192; resp[off++] = 168;
-        resp[off++] = 4;   resp[off++] = 1;
+        resp[off++] = esp_ip4_addr1(&s_onboard_ap_ip_info.ip);
+        resp[off++] = esp_ip4_addr2(&s_onboard_ap_ip_info.ip);
+        resp[off++] = esp_ip4_addr3(&s_onboard_ap_ip_info.ip);
+        resp[off++] = esp_ip4_addr4(&s_onboard_ap_ip_info.ip);
 
         sendto(sock, resp, off, 0,
                (struct sockaddr *)&client, client_len);
@@ -153,8 +213,10 @@ static esp_err_t http_get_root(httpd_req_t *req)
 /* Captive portal detection endpoints → redirect to root */
 static esp_err_t http_captive_redirect(httpd_req_t *req)
 {
+    char location[32];
+    snprintf(location, sizeof(location), "http://" IPSTR "/", IP2STR(&s_onboard_ap_ip_info.ip));
     httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_set_hdr(req, "Location", location);
     return httpd_resp_send(req, NULL, 0);
 }
 
@@ -221,6 +283,7 @@ static esp_err_t http_get_config(httpd_req_t *req)
     json_add_effective_config(root, "model", MIMI_NVS_LLM, MIMI_NVS_KEY_MODEL, MIMI_SECRET_MODEL);
     json_add_effective_config(root, "provider", MIMI_NVS_LLM, MIMI_NVS_KEY_PROVIDER, MIMI_SECRET_MODEL_PROVIDER);
     json_add_effective_config(root, "tg_token", MIMI_NVS_TG, MIMI_NVS_KEY_TG_TOKEN, MIMI_SECRET_TG_TOKEN);
+    json_add_effective_config(root, "groq_key", MIMI_NVS_TG, MIMI_NVS_KEY_GROQ_KEY, MIMI_SECRET_GROQ_KEY);
     json_add_effective_config(root, "feishu_app_id", MIMI_NVS_FEISHU, MIMI_NVS_KEY_FEISHU_APP_ID, MIMI_SECRET_FEISHU_APP_ID);
     json_add_effective_config(root, "feishu_app_secret", MIMI_NVS_FEISHU, MIMI_NVS_KEY_FEISHU_APP_SECRET, MIMI_SECRET_FEISHU_APP_SECRET);
     json_add_effective_config(root, "proxy_host", MIMI_NVS_PROXY, MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST);
@@ -346,6 +409,7 @@ static esp_err_t http_post_save(httpd_req_t *req)
 
     /* Telegram */
     nvs_sync_field(root, "tg_token", MIMI_NVS_TG,     MIMI_NVS_KEY_TG_TOKEN);
+    nvs_sync_field(root, "groq_key", MIMI_NVS_TG,     MIMI_NVS_KEY_GROQ_KEY);
 
     /* Feishu */
     nvs_sync_field(root, "feishu_app_id",     MIMI_NVS_FEISHU, MIMI_NVS_KEY_FEISHU_APP_ID);
@@ -388,6 +452,13 @@ static esp_err_t start_softap(bool keep_sta)
         ap_netif = esp_netif_create_default_wifi_ap();
     }
 
+    choose_onboard_ap_ip(keep_sta, &s_onboard_ap_ip_info);
+
+    /* Keep the onboarding AP subnet separate from the active STA subnet. */
+    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &s_onboard_ap_ip_info));
+    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
+
     /* APSTA lets the local config AP coexist with WiFi scanning/STA usage. */
     (void)keep_sta;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
@@ -409,6 +480,7 @@ static esp_err_t start_softap(bool keep_sta)
     }
 
     ESP_LOGI(TAG, "Soft AP started: %s (open)", ssid);
+    ESP_LOGI(TAG, "Soft AP address: " IPSTR, IP2STR(&s_onboard_ap_ip_info.ip));
     return ESP_OK;
 }
 
@@ -480,6 +552,48 @@ static httpd_handle_t start_http_server(bool captive)
     return s_server;
 }
 
+static esp_err_t stop_admin_portal(void)
+{
+    if (!s_admin_active) return ESP_OK;
+
+    esp_err_t result = ESP_OK;
+    if (s_server) {
+        esp_err_t err = httpd_stop(s_server);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to stop admin HTTP server: %s", esp_err_to_name(err));
+            ESP_LOGE(TAG, "Restarting to close the configuration portal safely");
+            esp_restart();
+            return err;
+        }
+        s_server = NULL;
+    }
+
+    esp_err_t mode_err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (mode_err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to disable admin SoftAP: %s", esp_err_to_name(mode_err));
+        ESP_LOGE(TAG, "Restarting to disable the configuration hotspot safely");
+        esp_restart();
+        return mode_err;
+    }
+
+    s_captive_mode = false;
+    s_admin_active = false;
+    ESP_LOGI(TAG, "Temporary admin portal closed; STA connection remains active");
+    return result;
+}
+
+static void admin_portal_timeout_task(void *arg)
+{
+    (void)arg;
+    while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(MIMI_ONBOARD_ADMIN_TIMEOUT_MS)) > 0) {
+        ESP_LOGI(TAG, "Temporary admin portal window refreshed");
+    }
+    ESP_LOGI(TAG, "Temporary admin portal window expired");
+    stop_admin_portal();
+    s_admin_timeout_task = NULL;
+    vTaskDelete(NULL);
+}
+
 /* ── Public API ─────────────────────────────────────────────────── */
 
 esp_err_t wifi_onboard_start(wifi_onboard_mode_t mode)
@@ -489,6 +603,16 @@ esp_err_t wifi_onboard_start(wifi_onboard_mode_t mode)
     ESP_LOGI(TAG, "========================================");
 
     bool captive = (mode == WIFI_ONBOARD_MODE_CAPTIVE);
+    if (!captive && s_admin_active) {
+        if (!s_admin_timeout_task) {
+            ESP_LOGE(TAG, "Admin portal is open without a timeout task");
+            return ESP_ERR_INVALID_STATE;
+        }
+        xTaskNotifyGive(s_admin_timeout_task);
+        ESP_LOGI(TAG, "Temporary admin portal timeout refreshed");
+        return ESP_OK;
+    }
+
     if (captive) {
         /* Stop STA retries before starting captive portal. */
         wifi_manager_set_reconnect_enabled(false);
@@ -507,12 +631,23 @@ esp_err_t wifi_onboard_start(wifi_onboard_mode_t mode)
 
     /* Start HTTP server */
     httpd_handle_t server = start_http_server(captive);
-    if (!server) return ESP_FAIL;
+    if (!server) {
+        if (!captive) esp_wifi_set_mode(WIFI_MODE_STA);
+        return ESP_FAIL;
+    }
 
-    ESP_LOGI(TAG, "Connect to MimiClaw-XXXX WiFi, then open http://192.168.4.1");
+    ESP_LOGI(TAG, "Connect to MimiClaw-XXXX WiFi, then open http://" IPSTR, IP2STR(&s_onboard_ap_ip_info.ip));
 
     if (!captive) {
-        ESP_LOGI(TAG, "Local admin portal stays available while STA is connected");
+        s_admin_active = true;
+        if (xTaskCreate(admin_portal_timeout_task, "admin_timeout", 3072, NULL, 3,
+                        &s_admin_timeout_task) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to start admin portal timeout task");
+            stop_admin_portal();
+            return ESP_ERR_NO_MEM;
+        }
+        ESP_LOGI(TAG, "Temporary admin portal will close after %d seconds",
+                 MIMI_ONBOARD_ADMIN_TIMEOUT_MS / 1000);
         return ESP_OK;
     }
 

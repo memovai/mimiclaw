@@ -7,6 +7,7 @@
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "esp_spiffs.h"
+#include "driver/gpio.h"
 #include "nvs_flash.h"
 
 #include "mimi_config.h"
@@ -22,12 +23,85 @@
 #include "cli/serial_cli.h"
 #include "proxy/http_proxy.h"
 #include "tools/tool_registry.h"
+#include "tools/tool_rgb_led.h"
+#include "ggwave/ggwave_buzzer.h"
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
 #include "onboard/wifi_onboard.h"
 
 static const char *TAG = "mimi";
+
+static void boot_button_task(void *arg)
+{
+    (void)arg;
+
+    const char *colors[] = {
+        "{\"color\":\"red\",\"brightness_percent\":35}",
+        "{\"color\":\"green\",\"brightness_percent\":35}",
+        "{\"color\":\"blue\",\"brightness_percent\":35}",
+        "{\"color\":\"yellow\",\"brightness_percent\":35}",
+        "{\"color\":\"purple\",\"brightness_percent\":35}",
+        "{\"color\":\"cyan\",\"brightness_percent\":35}",
+        "{\"color\":\"white\",\"brightness_percent\":35}",
+    };
+    int color = 0;
+    int last = 1;
+    TickType_t press_started = 0;
+    bool press_active = false;
+    bool long_press_handled = false;
+
+    gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << GPIO_NUM_0,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&cfg) != ESP_OK) {
+        ESP_LOGW(TAG, "BOOT RGB test unavailable: failed to configure GPIO0");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    last = gpio_get_level(GPIO_NUM_0);
+    while (1) {
+        int level = gpio_get_level(GPIO_NUM_0);
+        TickType_t now = xTaskGetTickCount();
+
+        if (last == 1 && level == 0) {
+            press_started = now;
+            press_active = true;
+            long_press_handled = false;
+        } else if (level == 0 && press_active && !long_press_handled &&
+                   (now - press_started) >= pdMS_TO_TICKS(MIMI_BOOT_BUTTON_LONG_PRESS_MS)) {
+            long_press_handled = true;
+            if (!wifi_manager_is_connected()) {
+                ESP_LOGW(TAG, "BOOT long press ignored: WiFi is not connected");
+            } else {
+                esp_err_t err = wifi_onboard_start(WIFI_ONBOARD_MODE_ADMIN);
+                if (err == ESP_OK) {
+                    ESP_LOGI(TAG, "BOOT long press -> temporary admin portal opened/refreshed");
+                } else {
+                    ESP_LOGW(TAG, "BOOT long press -> admin portal failed: %s", esp_err_to_name(err));
+                }
+            }
+        } else if (last == 0 && level == 1 && press_active) {
+            TickType_t held = now - press_started;
+            if (!long_press_handled &&
+                held >= pdMS_TO_TICKS(MIMI_BOOT_BUTTON_DEBOUNCE_MS)) {
+                char output[128];
+                tool_rgb_led_set_execute(colors[color], output, sizeof(output));
+                ESP_LOGI(TAG, "BOOT short press -> RGB test color %d: %s", color + 1, output);
+                color = (color + 1) % (int)(sizeof(colors) / sizeof(colors[0]));
+            }
+            press_active = false;
+        }
+
+        last = level;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
 
 static esp_err_t init_nvs(void)
 {
@@ -79,6 +153,12 @@ static void outbound_dispatch_task(void *arg)
                 ESP_LOGE(TAG, "Telegram send failed for %s: %s", msg.chat_id, esp_err_to_name(send_err));
             } else {
                 ESP_LOGI(TAG, "Telegram send success for %s (%d bytes)", msg.chat_id, (int)strlen(msg.content));
+                if (msg.transmit_audio) {
+                    esp_err_t ggwave_err = ggwave_buzzer_enqueue(msg.content);
+                    if (ggwave_err != ESP_OK) {
+                        ESP_LOGW(TAG, "ggwave enqueue failed: %s", esp_err_to_name(ggwave_err));
+                    }
+                }
             }
         } else if (strcmp(msg.channel, MIMI_CHAN_FEISHU) == 0) {
             esp_err_t send_err = feishu_send_message(msg.chat_id, msg.content);
@@ -133,6 +213,10 @@ void app_main(void)
     ESP_ERROR_CHECK(feishu_bot_init());
     ESP_ERROR_CHECK(llm_proxy_init());
     ESP_ERROR_CHECK(tool_registry_init());
+    esp_err_t ggwave_err = ggwave_buzzer_init();
+    if (ggwave_err != ESP_OK) {
+        ESP_LOGE(TAG, "ggwave buzzer unavailable: %s", esp_err_to_name(ggwave_err));
+    }
     ESP_ERROR_CHECK(cron_service_init());
     ESP_ERROR_CHECK(heartbeat_init());
     ESP_ERROR_CHECK(agent_loop_init());
@@ -163,8 +247,9 @@ void app_main(void)
         return;  /* unreachable */
     }
 
-    if (wifi_onboard_start(WIFI_ONBOARD_MODE_ADMIN) != ESP_OK) {
-        ESP_LOGW(TAG, "Local admin portal unavailable; continuing without config hotspot");
+    if (xTaskCreatePinnedToCore(boot_button_task, "boot_btn",
+                                4096, NULL, 2, NULL, 0) != pdPASS) {
+        ESP_LOGW(TAG, "Failed to start BOOT button task");
     }
 
     {

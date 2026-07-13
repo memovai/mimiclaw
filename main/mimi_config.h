@@ -46,6 +46,9 @@
 #ifndef MIMI_SECRET_TAVILY_KEY
 #define MIMI_SECRET_TAVILY_KEY      ""
 #endif
+#ifndef MIMI_SECRET_GROQ_KEY
+#define MIMI_SECRET_GROQ_KEY        ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -60,6 +63,7 @@
 #define MIMI_TG_POLL_CORE            0
 #define MIMI_TG_CARD_SHOW_MS         3000
 #define MIMI_TG_CARD_BODY_SCALE      3
+#define MIMI_TG_VOICE_MAX_BYTES      (1024 * 1024)
 
 /* Feishu Bot */
 #define MIMI_FEISHU_MAX_MSG_LEN          4096
@@ -119,6 +123,13 @@
 
 /* GPIO */
 #define MIMI_GPIO_CONFIG_SECTION     1   /* enable GPIO tools */
+#define MIMI_RGB_LED_GPIO            48  /* onboard WS2812 data pin on this board */
+#define MIMI_RGB_LED_COUNT           1
+#define MIMI_BOOT_BUTTON_DEBOUNCE_MS 50
+#define MIMI_BOOT_BUTTON_LONG_PRESS_MS 3000
+#define MIMI_AUDIO_BCLK_GPIO         16  /* NS4168 I2S bit clock */
+#define MIMI_AUDIO_LRCLK_GPIO        17  /* NS4168 I2S left/right clock */
+#define MIMI_AUDIO_DIN_GPIO          18  /* NS4168 I2S serial data */
 
 /* Skills */
 #define MIMI_SKILLS_PREFIX           MIMI_SPIFFS_BASE "/skills/"
@@ -148,6 +159,7 @@
 #define MIMI_NVS_KEY_FEISHU_APP_SECRET "app_secret"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
 #define MIMI_NVS_KEY_TAVILY_KEY      "tavily_key"
+#define MIMI_NVS_KEY_GROQ_KEY        "groq_key"
 #define MIMI_NVS_KEY_MODEL           "model"
 #define MIMI_NVS_KEY_PROVIDER        "provider"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
@@ -160,3 +172,4 @@
 #define MIMI_ONBOARD_HTTP_PORT    80
 #define MIMI_ONBOARD_DNS_STACK    (4 * 1024)
 #define MIMI_ONBOARD_MAX_SCAN     20
+#define MIMI_ONBOARD_ADMIN_TIMEOUT_MS (10 * 60 * 1000)

@@ -38,6 +38,20 @@ ensure_brew_pkg_if_missing_cmd() {
   fi
 }
 
+pick_python() {
+  local py
+  for py in "${ESP_PYTHON:-}" /opt/homebrew/bin/python3 python3; do
+    [[ -n "$py" ]] || continue
+    command -v "$py" >/dev/null 2>&1 || continue
+    if "$py" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      command -v "$py"
+      return 0
+    fi
+  done
+  echo "Python >= 3.10 not found. Install it with Homebrew first: brew install python" >&2
+  return 1
+}
+
 ensure_brew_pkg_if_missing_cmd git git
 ensure_brew_pkg_if_missing_cmd wget wget
 ensure_brew_pkg_if_missing_cmd flex flex
@@ -51,6 +65,10 @@ ensure_brew_pkg_if_missing_cmd dfu-util dfu-util
 ensure_brew_pkg libusb
 ensure_brew_pkg libffi
 ensure_brew_pkg openssl@3
+
+export ESP_PYTHON="$(pick_python)"
+unset IDF_PYTHON_ENV_PATH
+echo "python: using $ESP_PYTHON"
 
 mkdir -p "$ESP_ROOT"
 if [[ ! -d "$IDF_DIR/.git" ]]; then

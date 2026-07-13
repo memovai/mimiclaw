@@ -25,3 +25,7 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text);
  */
 esp_err_t telegram_set_token(const char *token);
 
+/**
+ * Save the Groq API key used for Telegram voice transcription.
+ */
+esp_err_t telegram_set_groq_key(const char *key);
