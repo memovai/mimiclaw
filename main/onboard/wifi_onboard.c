@@ -23,6 +23,8 @@
 static const char *TAG = "onboard";
 static httpd_handle_t s_server = NULL;
 static bool s_captive_mode = false;
+static bool s_admin_active = false;
+static TaskHandle_t s_admin_timeout_task = NULL;
 static esp_netif_ip_info_t s_onboard_ap_ip_info;
 
 typedef struct {
@@ -550,6 +552,48 @@ static httpd_handle_t start_http_server(bool captive)
     return s_server;
 }
 
+static esp_err_t stop_admin_portal(void)
+{
+    if (!s_admin_active) return ESP_OK;
+
+    esp_err_t result = ESP_OK;
+    if (s_server) {
+        esp_err_t err = httpd_stop(s_server);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to stop admin HTTP server: %s", esp_err_to_name(err));
+            ESP_LOGE(TAG, "Restarting to close the configuration portal safely");
+            esp_restart();
+            return err;
+        }
+        s_server = NULL;
+    }
+
+    esp_err_t mode_err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (mode_err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to disable admin SoftAP: %s", esp_err_to_name(mode_err));
+        ESP_LOGE(TAG, "Restarting to disable the configuration hotspot safely");
+        esp_restart();
+        return mode_err;
+    }
+
+    s_captive_mode = false;
+    s_admin_active = false;
+    ESP_LOGI(TAG, "Temporary admin portal closed; STA connection remains active");
+    return result;
+}
+
+static void admin_portal_timeout_task(void *arg)
+{
+    (void)arg;
+    while (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(MIMI_ONBOARD_ADMIN_TIMEOUT_MS)) > 0) {
+        ESP_LOGI(TAG, "Temporary admin portal window refreshed");
+    }
+    ESP_LOGI(TAG, "Temporary admin portal window expired");
+    stop_admin_portal();
+    s_admin_timeout_task = NULL;
+    vTaskDelete(NULL);
+}
+
 /* ── Public API ─────────────────────────────────────────────────── */
 
 esp_err_t wifi_onboard_start(wifi_onboard_mode_t mode)
@@ -559,6 +603,16 @@ esp_err_t wifi_onboard_start(wifi_onboard_mode_t mode)
     ESP_LOGI(TAG, "========================================");
 
     bool captive = (mode == WIFI_ONBOARD_MODE_CAPTIVE);
+    if (!captive && s_admin_active) {
+        if (!s_admin_timeout_task) {
+            ESP_LOGE(TAG, "Admin portal is open without a timeout task");
+            return ESP_ERR_INVALID_STATE;
+        }
+        xTaskNotifyGive(s_admin_timeout_task);
+        ESP_LOGI(TAG, "Temporary admin portal timeout refreshed");
+        return ESP_OK;
+    }
+
     if (captive) {
         /* Stop STA retries before starting captive portal. */
         wifi_manager_set_reconnect_enabled(false);
@@ -577,12 +631,23 @@ esp_err_t wifi_onboard_start(wifi_onboard_mode_t mode)
 
     /* Start HTTP server */
     httpd_handle_t server = start_http_server(captive);
-    if (!server) return ESP_FAIL;
+    if (!server) {
+        if (!captive) esp_wifi_set_mode(WIFI_MODE_STA);
+        return ESP_FAIL;
+    }
 
     ESP_LOGI(TAG, "Connect to MimiClaw-XXXX WiFi, then open http://" IPSTR, IP2STR(&s_onboard_ap_ip_info.ip));
 
     if (!captive) {
-        ESP_LOGI(TAG, "Local admin portal stays available while STA is connected");
+        s_admin_active = true;
+        if (xTaskCreate(admin_portal_timeout_task, "admin_timeout", 3072, NULL, 3,
+                        &s_admin_timeout_task) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to start admin portal timeout task");
+            stop_admin_portal();
+            return ESP_ERR_NO_MEM;
+        }
+        ESP_LOGI(TAG, "Temporary admin portal will close after %d seconds",
+                 MIMI_ONBOARD_ADMIN_TIMEOUT_MS / 1000);
         return ESP_OK;
     }
 

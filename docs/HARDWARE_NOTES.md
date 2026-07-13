@@ -15,6 +15,8 @@ Validated on Tian's physical ESP32-S3 board on 2026-07-05.
 - Released level: HIGH
 - Pressed level: LOW
 - Evidence: the BOOT-to-RGB test task detected presses and changed the GPIO48 RGB color.
+- Short press: cycle the onboard RGB test color.
+- Long press for 3 seconds: open the local admin hotspot for 10 minutes. It closes automatically without interrupting the STA connection.
 - RST/EN is reset only; it is not a readable GPIO input.
 
 ## External I2S Audio

@@ -4,7 +4,7 @@ This guide documents the Wi-Fi onboarding flow for firmware builds that include 
 
 ## What It Does
 
-When onboarding is enabled, MimiClaw can expose a local Wi-Fi access point such as `MimiClaw-XXXX` and serve a configuration page at `http://192.168.4.1`.
+When onboarding is enabled, MimiClaw can expose a local Wi-Fi access point such as `MimiClaw-XXXX` and serve a configuration page on the AP gateway address printed in the serial log (normally `http://192.168.50.1`).
 
 Typical uses:
 
@@ -23,7 +23,7 @@ Typical uses:
 1. Power on the device.
 2. Wait for the onboarding hotspot `MimiClaw-XXXX` to appear.
 3. Join that hotspot from your phone or laptop.
-4. Open `http://192.168.4.1` if the captive page does not open automatically.
+4. Open the gateway address printed in the serial log if the captive page does not open automatically.
 5. Fill in at least:
    - `SSID`
    - `Password`
@@ -40,9 +40,12 @@ Typical uses:
 
 ## Updating Settings Later
 
-If the firmware keeps the admin AP online after normal Wi-Fi connection, you can reconnect to `MimiClaw-XXXX` later and open `http://192.168.4.1` again.
+1. Hold the BOOT button for 3 seconds.
+2. Join the temporary `MimiClaw-XXXX` network from a phone or laptop.
+3. Open the gateway address printed in the serial log (normally `http://192.168.50.1`).
+4. Make and save the required changes.
 
-The page should prefill the currently effective configuration so you can edit only the fields you want to change.
+The admin hotspot and configuration server close automatically after 10 minutes. The normal STA connection and network services remain active. The page prefills the currently effective configuration so you can edit only the fields you want to change.
 
 ## Config Priority
 
@@ -75,7 +78,8 @@ mimi> config_reset
 ### No `MimiClaw-XXXX` hotspot appears
 
 - verify that the running firmware actually includes the onboarding portal
-- if the device already connects successfully and does not keep the admin AP online, clear Wi-Fi config and reboot
+- if the device is already connected, hold BOOT for 3 seconds to open the hotspot
+- if the device cannot connect and automatic onboarding does not start, clear Wi-Fi config and reboot
 - confirm the board has finished booting before scanning for Wi-Fi
 
 ### The page still shows old values
@@ -96,5 +100,5 @@ To return to build-time defaults:
 ## Notes
 
 - The onboarding AP is typically local-only and intended for nearby configuration.
-- Current onboarding implementations may use an open AP for simplicity, so avoid leaving it exposed longer than necessary.
+- The AP is open for compatibility, so the normal admin flow limits it to a 10-minute physical-presence window.
 - If your deployment needs stronger local protection, add an AP password before using the flow in production.

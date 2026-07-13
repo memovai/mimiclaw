@@ -32,7 +32,7 @@
 
 static const char *TAG = "mimi";
 
-static void boot_button_rgb_test_task(void *arg)
+static void boot_button_task(void *arg)
 {
     (void)arg;
 
@@ -47,7 +47,9 @@ static void boot_button_rgb_test_task(void *arg)
     };
     int color = 0;
     int last = 1;
-    TickType_t last_press = 0;
+    TickType_t press_started = 0;
+    bool press_active = false;
+    bool long_press_handled = false;
 
     gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << GPIO_NUM_0,
@@ -67,12 +69,33 @@ static void boot_button_rgb_test_task(void *arg)
         int level = gpio_get_level(GPIO_NUM_0);
         TickType_t now = xTaskGetTickCount();
 
-        if (last == 1 && level == 0 && (now - last_press) > pdMS_TO_TICKS(250)) {
-            char output[128];
-            tool_rgb_led_set_execute(colors[color], output, sizeof(output));
-            ESP_LOGI(TAG, "BOOT press -> RGB test color %d: %s", color + 1, output);
-            color = (color + 1) % (int)(sizeof(colors) / sizeof(colors[0]));
-            last_press = now;
+        if (last == 1 && level == 0) {
+            press_started = now;
+            press_active = true;
+            long_press_handled = false;
+        } else if (level == 0 && press_active && !long_press_handled &&
+                   (now - press_started) >= pdMS_TO_TICKS(MIMI_BOOT_BUTTON_LONG_PRESS_MS)) {
+            long_press_handled = true;
+            if (!wifi_manager_is_connected()) {
+                ESP_LOGW(TAG, "BOOT long press ignored: WiFi is not connected");
+            } else {
+                esp_err_t err = wifi_onboard_start(WIFI_ONBOARD_MODE_ADMIN);
+                if (err == ESP_OK) {
+                    ESP_LOGI(TAG, "BOOT long press -> temporary admin portal opened/refreshed");
+                } else {
+                    ESP_LOGW(TAG, "BOOT long press -> admin portal failed: %s", esp_err_to_name(err));
+                }
+            }
+        } else if (last == 0 && level == 1 && press_active) {
+            TickType_t held = now - press_started;
+            if (!long_press_handled &&
+                held >= pdMS_TO_TICKS(MIMI_BOOT_BUTTON_DEBOUNCE_MS)) {
+                char output[128];
+                tool_rgb_led_set_execute(colors[color], output, sizeof(output));
+                ESP_LOGI(TAG, "BOOT short press -> RGB test color %d: %s", color + 1, output);
+                color = (color + 1) % (int)(sizeof(colors) / sizeof(colors[0]));
+            }
+            press_active = false;
         }
 
         last = level;
@@ -194,10 +217,6 @@ void app_main(void)
     if (ggwave_err != ESP_OK) {
         ESP_LOGE(TAG, "ggwave buzzer unavailable: %s", esp_err_to_name(ggwave_err));
     }
-    if (xTaskCreatePinnedToCore(boot_button_rgb_test_task, "boot_rgb",
-                                4096, NULL, 2, NULL, 0) != pdPASS) {
-        ESP_LOGW(TAG, "Failed to start BOOT RGB test task");
-    }
     ESP_ERROR_CHECK(cron_service_init());
     ESP_ERROR_CHECK(heartbeat_init());
     ESP_ERROR_CHECK(agent_loop_init());
@@ -228,8 +247,9 @@ void app_main(void)
         return;  /* unreachable */
     }
 
-    if (wifi_onboard_start(WIFI_ONBOARD_MODE_ADMIN) != ESP_OK) {
-        ESP_LOGW(TAG, "Local admin portal unavailable; continuing without config hotspot");
+    if (xTaskCreatePinnedToCore(boot_button_task, "boot_btn",
+                                4096, NULL, 2, NULL, 0) != pdPASS) {
+        ESP_LOGW(TAG, "Failed to start BOOT button task");
     }
 
     {
