@@ -1,0 +1,50 @@
+%% ============================================================
+%% CHAPTER 6 — Context Compaction for Device-Hosted Loops
+%%                                        (budget: ~7,000 words)
+%% Role: answers RQ2. The D2 study grown to chapter length.
+%% ============================================================
+\chapter{Context Compaction for Device-Hosted Loops}
+\label{ch:compaction}
+
+\section{The Within-Turn Re-Upload Problem}
+\label{sec:comp-problem}
+% The code-level finding: the loop deep-copies and re-uploads the full
+% message array on every tool iteration; within-turn uplink is O(k^2) in
+% iteration count. Derivation + a measured motivating trace (bytes per
+% iteration for a 10-iteration task). Why prompt caching does not help
+% the device: bytes still leave the radio; RAM still holds the array.
+
+\section{The Compaction Ladder}
+\label{sec:comp-ladder}
+% Design of the four levels, each a firmware switch:
+% L0 full append (baseline); L1 per-tool output budgets with head/tail
+% truncation; L2 deterministic iteration digests (tool_use/tool_result
+% pairing preserved — API constraint — results shrunk to one status line,
+% interim text dropped); L3 placeholder masking (the on-device
+% reproduction of observation masking \citep{lindenbauer2025complexity}).
+% Information-preservation argument for L2: what a next-step decision
+% actually needs.
+
+\section{Implementation}
+\label{sec:comp-impl}
+% context_compactor module (~80 LoC), per-tool budget field in the tool
+% registry (~30 LoC), the is_error repair to tool results. Where the
+% compactor runs in the loop; why in-place cJSON rewriting is safe.
+
+\section{Evaluation}
+\label{sec:comp-eval}
+% Per level: bytes-per-turn curve (the O(k^2)->O(k) figure), tokens,
+% per-iteration latency, PSRAM high-water, success rate on the task grid
+% (stratified by horizon and recall requirement). The key trade-off
+% figure: success vs uplink across L0–L3. Model-tier interaction: which
+% level weaker models tolerate.
+
+\section{Relation to State-Folding Approaches}
+\label{sec:comp-related}
+% Position L1/L2 as the deterministic rungs below MEM1/state-folding
+% (L3+ requires the model in the loop); what the ladder buys without any
+% model cooperation; when it stops being enough.
+
+\section{Summary}
+\label{sec:comp-summary}
+% One paragraph: the recommendation (default level, when to deviate).

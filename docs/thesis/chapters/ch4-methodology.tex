@@ -1,0 +1,51 @@
+%% ============================================================
+%% CHAPTER 4 — Experimental Methodology     (budget: ~5,000 words)
+%% Role: everything Ch5–8 measure is defined ONCE here.
+%% Source: system report §6 + SpecClaw proposal §6.
+%% ============================================================
+\chapter{Experimental Methodology}
+\label{ch:methodology}
+
+\section{Why Existing Benchmarks Do Not Apply}
+\label{sec:meth-gap}
+% AgentBench/ToolBench/WebArena/AndroidWorld assume host loops and GUI/web
+% tools; Harness-Bench's 106 tasks assume shell/filesystem/browser. State
+% the structural non-runnability on a device runtime; position the task
+% suite below as the seed of an MCU-agent benchmark.
+
+\section{Metrics}
+\label{sec:meth-metrics}
+% The six-category table: systems footprint; per-turn cost (latency
+% decomposition, bytes, tokens, dollars, joules); task capability;
+% memory quality; reliability; safety. Define each precisely, with the
+% measurement instrument (esp_timer, heap_caps, INA226, ground-truth judge).
+
+\section{A Taxonomy of Baselines}
+\label{sec:meth-baselines}
+% The five baseline types and the question each answers:
+% (i) peer runtimes; (ii) host-side reference loop; (iii) self-ablations;
+% (iv) opposite architecture; (v) published numbers. One subsection each,
+% including fairness rules (native prompts kept; model, task text, and
+% judge held fixed).
+
+\section{Task Suite}
+\label{sec:meth-tasks}
+% The common-task set (file ops, memory recall, scheduling, search QA,
+% multi-step orchestration) for parity; the MCU-specific set (GPIO,
+% fault recovery, disconnection); the ALFWorld/WebShop pass-through subset.
+% Grid dimensions: horizon x predictability x irreversibility. Ground-truth
+% judge per task. Full definitions in Appendix~\ref{app:tasks}.
+
+\section{Experimental Substrate}
+\label{sec:meth-substrate}
+% Hardware-in-the-loop with simulated environment: real firmware, real API
+% calls, simulated sensors/actuators via the WS gateway (why: ground truth,
+% reproducible stochasticity injection, batch scale). The physical bench
+% (sensor, relay/fan, INA226) for measured energy. Fault/outage injection
+% mechanics.
+
+\section{Statistical Protocol}
+\label{sec:meth-protocol}
+% >=10 seeds per configuration; 95% CIs; parity claims as equivalence
+% statements; fixed injection schedules; artifact release (harness, task
+% definitions, raw logs).

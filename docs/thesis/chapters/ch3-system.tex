@@ -1,0 +1,65 @@
+%% ============================================================
+%% CHAPTER 3 — MimiClaw: an Agent Runtime Without an OS
+%%                                        (budget: ~9,000 words)
+%% Role: the system chapter. Source material: docs/mimiclaw-system-report.md
+%% (expand each report section ~2x, add figures).
+%% ============================================================
+\chapter{MimiClaw: an Agent Runtime Without an Operating System}
+\label{ch:system}
+
+\section{Design Goals and Non-Goals}
+\label{sec:sys-goals}
+% Goals: complete runtime semantics (loop/tools/memory/channels/autonomy),
+% survives unattended operation, safety boundary in deterministic code,
+% fits alongside WiFi+TLS in 512KB SRAM. Non-goals: on-device inference,
+% multi-agent, hard real-time guarantees.
+
+\section{The Five Constraints of Bare Metal}
+\label{sec:sys-constraints}
+% One subsection per constraint (no processes; tiered scarce memory; flat
+% filesystem; no dynamic runtime; failure as normal case). Each ends with
+% a forward pointer to the mechanism that answers it.
+
+\section{Architecture: a Message Bus on a Dual-Core Split}
+\label{sec:sys-architecture}
+% Figure: block diagram (channels -> inbound queue -> agent loop (core 1)
+% -> outbound queue -> dispatch (core 0)). Ownership-transfer discipline;
+% backpressure = drop-and-log. The asyncio-to-FreeRTOS translation table.
+
+\section{Memory Tiering and Degraded Startup}
+\label{sec:sys-memory}
+% PSRAM-vs-SRAM placement rule; fixed lifetime buffers (16/32/8 KB);
+% compile-time footprint bound. The descending stack ladder as a worked
+% example of graceful degradation.
+
+\section{Persistent Memory: the File Paradigm on Flat Flash}
+\label{sec:sys-filememory}
+% SOUL/USER/MEMORY/daily/sessions layout on SPIFFS; the model as the writer
+% of its own memory; the fixed-budget context assembly (16KB, itemized
+% caps); session slimming; progressive disclosure of skills.
+
+\section{Tools and Deterministic Guards}
+\label{sec:sys-guards}
+% Tool registry; gpio_policy allowlist; parameter patching with the cron
+% case study. State the generalizable pattern: any field the firmware
+% knows with certainty is decided by the firmware.
+
+\section{Autonomy and Fault Recovery}
+\label{sec:sys-autonomy}
+% cron + heartbeat; the recover-by-rebuild ladder (NVS erase, SPIFFS
+% reformat, captive-portal fallback); OTA. What survives a hard reset.
+
+\section{Resource Ledger}
+\label{sec:sys-ledger}
+% Tables: flash partition map; SRAM/PSRAM static budget; context budget.
+% The headline number: the architectural part of an agent in <60KB SRAM.
+
+\section{Design Principles}
+\label{sec:sys-principles}
+% The four principles (behavior is data; every resource has a budget; the
+% firmware does not trust the model; degradation over perfection), each
+% with its instances cross-referenced to earlier sections.
+
+\section{Summary}
+\label{sec:sys-summary}
+% Answers the qualitative half of RQ1; the quantitative half is Ch5.

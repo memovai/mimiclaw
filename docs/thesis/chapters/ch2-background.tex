@@ -1,0 +1,77 @@
+%% ============================================================
+%% CHAPTER 2 — Background and Related Work   (budget: ~9,000 words)
+%% Role: six literatures, each closed with the gap this thesis fills.
+%% ============================================================
+\chapter{Background and Related Work}
+\label{ch:background}
+
+\section{LLM Agents and the ReAct Loop}
+\label{sec:bg-react}
+% Define the loop: reason -> act -> observe. Tool calling via structured
+% API messages; the transcript as the loop's state. Cite ReAct
+% \citep{yao2023react}, plan-then-execute variants ReWOO
+% \citep{xu2023rewoo}, LLM Compiler \citep{kim2023llmcompiler}.
+% Close: all assume host-class execution; none discusses where the loop
+% physically runs.
+
+\section{Agent Runtimes: the Claw Family}
+\label{sec:bg-runtimes}
+% The shrink lineage with a comparison table (OpenClaw, nanobot, PicoClaw,
+% ZeroClaw; then the 2026 MCU cluster: ESP-Claw, WireClaw, zclaw, MimiClaw).
+% Describe what a runtime provides: loop, tools, memory, channels, autonomy.
+% Note the OSS MCU systems have no papers and no measurements — engineering
+% exists, science does not. That gap is Ch3+5.
+
+\section{Device--Cloud Collaborative Agents}
+\label{sec:bg-edgecloud}
+% EcoAgent \citep{yi2025ecoagent} as the closest closed-loop precedent
+% (phone-class; on-device 2B VLM verification). DCP \citep{yang2026dcp} as
+% the opposite architecture (MCU as validated endpoint). Surveys of
+% edge-SLM/cloud-LLM collaboration. Pre-LLM lineage: Embedded-BDI
+% \citep{embeddedbdi2026}.
+% Close: nobody hosts the loop itself on an MCU; verification without any
+% on-device model is unaddressed.
+
+\section{Context and Memory Management for Agents}
+\label{sec:bg-context}
+% Trajectory/state compression: MEM1 \citep{mem1_2025}, StateAct
+% \citep{rozanov2024stateact} (note its JSON-hurts finding), constant-context
+% formulations \citep{remember2026,historystate2026}, on-device context
+% state objects \citep{samsungctx2025}. Cheap baselines: observation
+% masking \citep{lindenbauer2025complexity}. Memory benchmarks:
+% MemoryAgentBench \citep{memoryagentbench2026}.
+% Close: all measured in tokens; none in bytes/joules/RAM; none addresses
+% the re-upload structure of a device-hosted loop (Ch6).
+
+\section{Embedded Scripting and Runtime Extensibility}
+\label{sec:bg-scripting}
+% Embedded interpreters: Lua/eLua, MicroPython, Berry (Tasmota); dynamic
+% loading on MCUs (loadable ELF). ESP-Claw's cap\_lua skill spec as
+% engineering precedent (SKILL.md + lua_run_script + async jobs) — describe
+% precisely, no evaluation exists. Linux agent skills (OpenClaw, Claude
+% Code) and their silent OS dependencies.
+% Close: LLM-as-author-and-caller of embedded scripts is unstudied (Ch7).
+
+\section{Speculative Execution for LLM Agents}
+\label{sec:bg-speculation}
+% Speculative decoding \citep{leviathan2023fast} as the origin. The
+% 2025--26 server-side cluster: \citep{guan2025dynamic,spagent2025,
+% sherlock2025,bpaste2026,idlespec2026,ghosttool2026}. Their three shared
+% assumptions (LLM verifier; latency objective; discardable actions).
+% Close: all three invert on physical devices (Ch8).
+
+\section{Evaluating Agent Systems}
+\label{sec:bg-benchmarks}
+% Model-side benchmarks (ALFWorld \citep{shridhar2020alfworld}, WebShop
+% \citep{yao2022webshop}, GAIA, tau-bench, SWE-bench). Harness-side:
+% Harness-Bench \citep{harnessbench2026} (fix model, vary harness; the
+% 23.8pp finding), RealClawBench \citep{realclawbench2026}, LiveClawBench
+% \citep{liveclawbench2026}. Note: no benchmark integrates energy or
+% safety in primary scoring; none runs on a device runtime.
+% Close: motivates the methodology of Ch4.
+
+\section{Summary of Gaps}
+\label{sec:bg-gaps}
+% Half a page: a table mapping each gap (loop-on-MCU unmeasured; context
+% cost in physical units; skills without OS; speculation with irreversible
+% actions; device-capable evaluation) to the chapter that addresses it.

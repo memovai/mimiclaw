@@ -1,0 +1,52 @@
+%% ============================================================
+%% CHAPTER 5 — Characterization: What Bare Metal Costs and Buys
+%%                                        (budget: ~8,000 words)
+%% Role: the measurement chapter; answers the quantitative half of RQ1.
+%% ============================================================
+\chapter{Characterization: What Bare Metal Costs and Buys}
+\label{ch:characterization}
+
+\section{Static Footprint}
+\label{sec:char-footprint}
+% Measured flash/SRAM/PSRAM against nanobot-on-Pi (RSS, storage) and
+% zclaw where public. Boot-to-ready time. Table + one bar figure.
+
+\section{Per-Turn Latency Decomposition}
+\label{sec:char-latency}
+% The waterfall figure: DNS / TLS handshake / TTFB / streaming / parse /
+% tool execution, vs the host reference loop on the same network (type-ii
+% baseline isolates the MCU tax). TLS connection-reuse on/off. Findings
+% paragraph: where the time actually goes.
+
+\section{Energy}
+\label{sec:char-energy}
+% Joules per task (INA226 trace aligned via GPIO marker); idle draw;
+% 24-hour always-on total vs Pi Zero 2W + nanobot. The battery-life /
+% annual-energy projection figure — the headline chart of the chapter.
+
+\section{Task Parity with Linux Runtimes}
+\label{sec:char-parity}
+% The two-table design: (1) parity table on the common task set (success
+% with CIs, cost, latency, energy; success is the equivalence check, not
+% the differentiator); (2) capability coverage matrix (host-only rows:
+% shell, browser; MCU-only rows: GPIO, physical actuation). Model-tier
+% sweep subsection: does harness sensitivity fall with stronger models;
+% do deterministic guards compensate weaker ones.
+
+\section{Reliability Under Faults}
+\label{sec:char-faults}
+% Fault-injection matrix results (WiFi outage 10/60/600s; mid-task power
+% pull; API 429/500/malformed; SPIFFS full): recovery rate + MTTR, vs
+% nanobot-on-Pi under the same faults AND vs MimiClaw with recovery
+% mechanisms disabled (proves the design, not the SDK, earns the result).
+% 7-day soak: heap-drift curve, crash/reconnect/loss counts.
+
+\section{Architecture Validation}
+\label{sec:char-dualcore}
+% Dual-core split vs single-core pinning: channel-latency jitter during
+% agent turns. Turns the §3.3 claim into a distribution plot.
+
+\section{Discussion}
+\label{sec:char-discussion}
+% What parity + two-orders-of-magnitude resource gap means; where the MCU
+% genuinely loses (flexibility, coverage); threats to validity.

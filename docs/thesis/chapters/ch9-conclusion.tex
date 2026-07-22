@@ -1,0 +1,42 @@
+%% ============================================================
+%% CHAPTER 9 — Conclusions and Future Work  (budget: ~3,500 words)
+%% ============================================================
+\chapter{Conclusions and Future Work}
+\label{ch:conclusion}
+
+\section{Summary of Contributions}
+\label{sec:conc-summary}
+% Revisit C1–C5, each in one paragraph, now with the measured numbers
+% filled in (parity margin, resource gap, compaction savings, coverage
+% jump from L0 to L2 skills, call reduction factor L). Explicitly answer
+% each RQ with a yes/no/qualified sentence.
+
+\section{The Thesis Claim, Revisited}
+\label{sec:conc-claim}
+% One page: in what sense the essence of an agent runtime does not depend
+% on an OS — and in what sense it still does (the cloud API is itself a
+% service dependency; be honest about the boundary of the claim).
+
+\section{Limitations}
+\label{sec:conc-limitations}
+% Consolidated: single hardware family (ESP32-S3); simulated environments
+% for ground truth (bench subset only); model landscape shifts under the
+% measurements; memory-file growth still relies on model discipline;
+% cross-user memory isolation (the shared-MEMORY.md leakage) identified
+% but not solved here.
+
+\section{Future Work}
+\label{sec:conc-future}
+% Ranked: (1) MCU-AgentBench — grow the Ch4 task suite into a community
+% benchmark with a simulation-only reproduction path; (2) state folding
+% (TinyReAct L3+): the model maintains an O(1) state block, the natural
+% continuation of Ch6; (3) speculation-to-FSM compilation as the limit of
+% Ch8; (4) per-chat memory namespaces and a firmware-enforced memory
+% compaction mechanism; (5) resource-aware scheduling: a policy choosing
+% among Ch6 levels / Ch8 depth by battery and network state.
+
+\section{Closing Remark}
+\label{sec:conc-closing}
+% Two or three sentences. The device did not get smarter — the
+% architecture got smaller. What that suggests about where agents can
+% now live.

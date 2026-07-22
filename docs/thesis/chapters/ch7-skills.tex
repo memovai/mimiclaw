@@ -1,0 +1,61 @@
+%% ============================================================
+%% CHAPTER 7 — Skills Without an Operating System
+%%                                        (budget: ~8,000 words)
+%% Role: answers RQ3. The design-space chapter.
+%% ============================================================
+\chapter{Skills Without an Operating System}
+\label{ch:skills}
+
+\section{What Linux Skills Silently Assume}
+\label{sec:skill-assumptions}
+% Dissect OpenClaw/Claude Code skills: executable scripts assume a shell
+% and interpreters; isolation assumes processes/containers; dependencies
+% assume a package manager; installation assumes a hierarchical FS.
+% Remove the OS and each assumption fails — enumerate them as a table
+% that the rest of the chapter answers.
+
+\section{A Design Space for OS-less Skills}
+\label{sec:skill-space}
+% The expressiveness ladder with the OS-substitute column:
+% L0 prompt-only (interpreter = the cloud LLM itself);
+% L1 declarative config (fixed firmware mechanisms interpret data);
+% L2 interpreted script (embedded interpreter = sandbox; timeout hook =
+%    process killer; module allowlist = permission system; interpreter
+%    heap cap = memory isolation);
+% L3 loadable native code (discussed, not built: essentially
+%    unsandboxable without an MMU — argues L2 is the sweet spot).
+% Axes: expressiveness, footprint, safety, LLM-authorability, lifecycle.
+
+\section{Case Study: ESP-Claw's Lua Skill System}
+\label{sec:skill-espclaw}
+% Precise description from the public spec: SKILL.md JSON frontmatter,
+% cap_groups activation, the single lua_run_script tool, arg_schema
+% device-side validation, the async job system (named jobs, exclusive
+% locks). Engineering precedent, no published evaluation.
+
+\section{Implementation: MicroPython Skills for MimiClaw}
+\label{sec:skill-impl}
+% Wiring the vendored micropython_embed component: a python_run_script
+% tool mirroring cap_lua; sandbox design (timeout vs the hardware
+% watchdog — the bare-metal-specific interaction; module allowlist;
+% heap cap); skills as SPIFFS directories; how the model authors a new
+% skill at runtime through existing file tools.
+
+\section{Evaluation}
+\label{sec:skill-eval}
+% Four experiments:
+% 1. Coverage: 20 capability-extension requests; % achievable at L0 vs L2.
+% 2. LLM authorability: model writes the skill (L0 markdown; L2 script);
+%    first-try success and repair iterations, by model tier.
+% 3. The interpretation tax: flash/RAM cost of the interpreter; script vs
+%    native C tool latency for identical operations.
+% 4. Sandbox verification: runaway loop -> timeout kill; allocation bomb
+%    -> heap cap; forbidden import -> blocked; WDT interplay.
+% Plus the comparative table: Lua (ESP-Claw) vs MicroPython (MimiClaw)
+% vs C-only, on footprint/latency/safety mechanisms.
+
+\section{Discussion}
+\label{sec:skill-discussion}
+% When each level is the right choice; the security surface an
+% LLM-authored script opens (link forward to guards, back to Ch3);
+% lifecycle gaps (versioning, revocation) as future work.

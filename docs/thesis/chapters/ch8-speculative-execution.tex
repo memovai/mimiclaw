@@ -1,0 +1,71 @@
+%% ============================================================
+%% CHAPTER 8 — Guarded Speculative Execution
+%%                                        (budget: ~9,000 words)
+%% Role: answers RQ4. Source: docs/specclaw-research-proposal.md.
+%% Scope is adjustable: if time is short, cut §8.6.3 (adaptive depth)
+%% and shrink the stochasticity grid; the chapter stands on RQ-a/b alone.
+%% ============================================================
+\chapter{Guarded Speculative Execution}
+\label{ch:speculation}
+
+\section{Motivation: the Fixed Cost of Every Call}
+\label{sec:spec-motivation}
+% The per-call fixed overhead (radio wake, TLS handshake, RTT) measured in
+% Ch5; an n-step ReAct task pays it n times. Disconnection halts reasoning
+% even though the loop survives. One paragraph recalling that prompt
+% caching does not touch these costs.
+
+\section{The Three Inversions}
+\label{sec:spec-inversions}
+% The table contrasting server-side speculation with this setting:
+% verifier (target LLM -> physical world + deterministic guards);
+% objective (latency overlap -> call count/energy/offline resilience);
+% action semantics (discardable -> irreversible, commit-after-verify).
+% Derive the new research object: silent divergence.
+
+\section{The Speculation Script Protocol}
+\label{sec:spec-protocol}
+% The JSON script format ((action, guard envelope, timeout) tuples,
+% irreversible flag, done_when). The minimal guard language (gt/lt/in/eq/
+% delta_lt/within_s, AND only) and why restricted expressiveness is the
+% point: decidable, ~100 LoC evaluator, statically auditable.
+% Grammar in Appendix~\ref{app:guards}.
+
+\section{Guarded-Commit Semantics}
+\label{sec:spec-semantics}
+% The execution algorithm (pre-guard -> D_irrev valve -> execute through
+% the policy allowlist -> post-guard within timeout -> commit log).
+% Definitions: acceptance length L; silent divergence; guard false-reject;
+% D_irrev. The two invariants. The compact-state repredict payload
+% (O(1) uplink per replan; reuses Ch6's digest machinery).
+
+\section{Implementation}
+\label{sec:spec-impl}
+% The main/spec/ modules (parser, guard evaluator, executor fast path,
+% state snapshot, commit log); executor as a mode branch of the agent
+% loop, not a separate task; structured-output enforcement and
+% malformed-script rejection (malformed rate reported as a result).
+% Recovery from the commit log across resets.
+
+\section{Evaluation}
+\label{sec:spec-eval}
+\subsection{Benefit at Matched Success}
+% Calls/task, joules/task, the bimodal step-latency histogram, vs the
+% four baselines (step ReAct; +prompt caching; ReWOO-style open loop;
+% full-plan + naive equality guards).
+\subsection{Depth versus Stochasticity}
+% The core figure: acceptance length L and net benefit as environment
+% noise/faults increase; the crossover where speculation stops paying.
+\subsection{Guard Quality}
+% The ROC-shaped trade-off: silent divergence vs false-reject across
+% envelope tightness and guard density; the effect of forcing one
+% observable post-condition per action.
+\subsection{Disconnection Resilience}
+% Task survival under 10/60/600 s outages, vs step ReAct and the
+% cloud-orchestrated shim (type-iv baseline).
+
+\section{Discussion}
+\label{sec:spec-discussion}
+% When to speculate and how deep (the practical decision rule); the
+% relationship to LLM-generated offline rules (WireClaw) and to FSM
+% compilation as the limit case (future work); threats to validity.

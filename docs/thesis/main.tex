@@ -1,0 +1,159 @@
+%% ============================================================
+%% PhD Thesis — University of Manchester, Department of Computer Science
+%% Working title: Agent Runtimes Without an Operating System:
+%%                Hosting LLM Agent Loops on Bare-Metal Microcontrollers
+%%
+%% NOTES ON FORMAT
+%% - This skeleton uses the plain `report` class so it compiles on any
+%%   Overleaf project with zero extra files. If you prefer the official
+%%   CS Manchester class, search Overleaf for "University of Manchester
+%%   Thesis" (muthesis) and move the chapter files across unchanged.
+%% - UoM Presentation of Theses Policy essentials implemented here:
+%%   A4; margins >= 15 mm (binding edge larger); 1.5 line spacing;
+%%   front-matter order: title page, contents, lists, abstract (ONE page),
+%%   declaration, copyright statement, acknowledgements.
+%% - PhD word limit: 80,000 words (main text). Verify the current policy
+%%   wording before submission:
+%%   https://documents.manchester.ac.uk/display.aspx?DocID=7420
+%% ============================================================
+
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[a4paper,margin=25mm,left=40mm]{geometry} % 40mm binding edge
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{listings}   % for C / JSON / protocol snippets
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage{microtype}
+
+\newcommand{\thesistitle}{Agent Runtimes Without an Operating System:\\
+Hosting LLM Agent Loops on Bare-Metal Microcontrollers}
+\newcommand{\candidatename}{YOUR NAME}
+\newcommand{\submissionyear}{2027}
+
+\begin{document}
+
+%% ------------------------------------------------------------
+%% TITLE PAGE (wording mandated by UoM policy)
+%% ------------------------------------------------------------
+\begin{titlepage}
+  \centering
+  \vspace*{20mm}
+  {\LARGE\bfseries \thesistitle \par}
+  \vfill
+  {\large A thesis submitted to The University of Manchester\\
+   for the degree of Doctor of Philosophy\\
+   in the Faculty of Science and Engineering\par}
+  \vspace{15mm}
+  {\large \submissionyear \par}
+  \vspace{15mm}
+  {\large\bfseries \candidatename \par}
+  \vspace{5mm}
+  {\large Department of Computer Science\\
+   School of Engineering\par}
+\end{titlepage}
+
+%% ------------------------------------------------------------
+%% FRONT MATTER (order mandated by UoM policy)
+%% ------------------------------------------------------------
+\tableofcontents
+\listoffigures
+\listoftables
+
+% Word count: policy requires it declared; put it on the contents page or here.
+\cleardoublepage
+\noindent Word count: \texttt{XX,XXX}
+
+\cleardoublepage
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+% ONE PAGE MAX. Structure (one paragraph each):
+% 1. Context: agent runtimes have shrunk (OpenClaw -> nanobot -> PicoClaw),
+%    but all stop at Linux; the untested assumption is the OS itself.
+% 2. What was built: MimiClaw, a complete agent runtime (~8.3k lines C)
+%    on bare-metal ESP32-S3; loop, model-managed memory, skills, channels,
+%    autonomy, safety guards; cloud LLM for reasoning only.
+% 3. What was measured: parity with Linux runtimes on a common task set at
+%    orders-of-magnitude lower footprint/energy; the within-turn quadratic
+%    re-upload problem and the context-compaction ladder that removes it;
+%    the skill design space without an OS; guarded speculative execution
+%    cutting cloud calls by the acceptance length.
+% 4. Claim: the essence of an agent runtime does not depend on an OS;
+%    contributions listed in one sentence.
+
+\cleardoublepage
+\chapter*{Declaration}
+\addcontentsline{toc}{chapter}{Declaration}
+\noindent No portion of the work referred to in this thesis has been submitted
+in support of an application for another degree or qualification of this or
+any other university or other institute of learning.
+
+\cleardoublepage
+\chapter*{Copyright Statement}
+\addcontentsline{toc}{chapter}{Copyright Statement}
+% Standard UoM four-point text. VERIFY current wording against the policy
+% document before submission.
+\begin{itemize}
+\item[i.] The author of this thesis (including any appendices and/or
+  schedules to this thesis) owns certain copyright or related rights in it
+  (the ``Copyright'') and s/he has given The University of Manchester certain
+  rights to use such Copyright, including for administrative purposes.
+\item[ii.] Copies of this thesis, either in full or in extracts and whether
+  in hard or electronic copy, may be made \emph{only} in accordance with the
+  Copyright, Designs and Patents Act 1988 (as amended) and regulations issued
+  under it or, where appropriate, in accordance with licensing agreements
+  which the University has from time to time. This page must form part of any
+  such copies made.
+\item[iii.] The ownership of certain Copyright, patents, designs, trademarks
+  and other intellectual property (the ``Intellectual Property'') and any
+  reproductions of copyright works in the thesis, for example graphs and
+  tables (``Reproductions''), which may be described in this thesis, may not
+  be owned by the author and may be owned by third parties. Such Intellectual
+  Property and Reproductions cannot and must not be made available for use
+  without the prior written permission of the owner(s) of the relevant
+  Intellectual Property and/or Reproductions.
+\item[iv.] Further information on the conditions under which disclosure,
+  publication and commercialisation of this thesis, the Copyright and any
+  Intellectual Property and/or Reproductions described in it may take place
+  is available in the University IP Policy, in any relevant Thesis
+  restriction declarations deposited in the University Library, the
+  University Library's regulations and in The University's policy on
+  Presentation of Theses.
+\end{itemize}
+
+\cleardoublepage
+\chapter*{Acknowledgements}
+\addcontentsline{toc}{chapter}{Acknowledgements}
+% Supervisor, panel, collaborators, open-source contributors to MimiClaw,
+% funding if any, personal.
+
+%% ------------------------------------------------------------
+%% MAIN MATTER
+%% ------------------------------------------------------------
+\input{chapters/ch1-introduction}
+\input{chapters/ch2-background}
+\input{chapters/ch3-system}
+\input{chapters/ch4-methodology}
+\input{chapters/ch5-characterization}
+\input{chapters/ch6-context-compaction}
+\input{chapters/ch7-skills}
+\input{chapters/ch8-speculative-execution}
+\input{chapters/ch9-conclusion}
+
+%% ------------------------------------------------------------
+%% BACK MATTER
+%% ------------------------------------------------------------
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\input{chapters/appendix}
+
+\end{document}

@@ -1,0 +1,60 @@
+%% ============================================================
+%% CHAPTER 1 — Introduction            (budget: ~4,000 words)
+%% Role: state the question, the claim, and the map of the thesis.
+%% ============================================================
+\chapter{Introduction}
+\label{ch:intro}
+
+\section{Motivation}
+\label{sec:intro-motivation}
+% Para 1: LLM agents moved from chatbots to systems that act — the ReAct
+%   loop as the unit of agency. One paragraph, cite \citep{yao2023react}.
+% Para 2: the runtime shrink history: OpenClaw (400k+ LoC TS) -> nanobot
+%   (4k Python) -> PicoClaw/ZeroClaw (<10MB Go/Rust). Each step disproved a
+%   dependency assumed essential. All stop at Linux.
+% Para 3: why the OS boundary matters: cost (a $4 device vs a $50 SBC),
+%   power (always-on economics), deployment surface (billions of MCUs),
+%   and intellectually — what IS the minimal sufficient agent runtime?
+% Para 4: the enabling observation: intelligence in the cloud, architecture
+%   on the device. If reasoning consumes no local resources, the question
+%   sharpens to the architectural minimum.
+
+\section{Problem Statement and Research Questions}
+\label{sec:intro-rqs}
+% One paragraph framing, then the RQs as an enumerated list. Each RQ maps
+% to exactly one results chapter — say so explicitly here.
+% RQ1 (Ch3+5): What does a complete agent runtime require on bare metal,
+%   and at what resource cost? Can it reach task parity with Linux runtimes?
+% RQ2 (Ch6): How should the per-step context of a ReAct loop be managed on
+%   a device that must re-upload it on every call?
+% RQ3 (Ch7): How can an OS-less agent extend its own capabilities at
+%   runtime, and what replaces the OS services that skills silently assume?
+% RQ4 (Ch8): Can multi-step cloud plans be executed safely on-device to
+%   reduce per-step cloud dependence, given irreversible physical actions?
+
+\section{Contributions}
+\label{sec:intro-contributions}
+% Numbered list, one sentence each, each tied to an RQ and a chapter:
+% C1: MimiClaw — the first fully documented bare-metal agent runtime
+%     (system + open-source artifact).
+% C2: A five-baseline evaluation methodology and measurement study
+%     (parity, latency waterfall, energy, fault recovery).
+% C3: Identification of within-turn quadratic re-upload + the context
+%     compaction ladder (L0–L3) with measured trade-offs.
+% C4: A design space and implementation of skill systems without an OS
+%     (prompt / declarative / interpreted script), incl. LLM authorability.
+% C5: Guarded speculative execution: commit-after-verify semantics for
+%     irreversible actions, the silent-divergence failure mode, and its
+%     measured call/energy savings.
+
+\section{Publications and Software}
+\label{sec:intro-publications}
+% Placeholder: list arXiv reports / workshop papers as they appear, and the
+% open-source repositories (mimiclaw mainline, research fork), stating which
+% thesis chapters draw on which artifact.
+
+\section{Thesis Outline}
+\label{sec:intro-outline}
+% One short paragraph per chapter (2–3 sentences), so an examiner can
+% navigate. End with a reading-dependency note: Ch3–4 are prerequisites for
+% Ch5–8; Ch6–8 are mutually independent.
