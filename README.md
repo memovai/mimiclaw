@@ -133,10 +133,10 @@ Edit `main/mimi_secrets.h`:
 #define MIMI_SECRET_TAVILY_KEY      ""              // optional: Tavily API key (preferred)
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"
-#define MIMI_SECRET_MQTT_URI        ""              // optional: e.g. "mqtt://broker.hivemq.com:1883"
+#define MIMI_SECRET_MQTT_URI        ""              // optional: e.g. "mqtts://broker.example.com:8883"
 #define MIMI_SECRET_MQTT_CLIENT_ID  ""              // optional: auto-generated if empty
-#define MIMI_SECRET_MQTT_USERNAME   ""              // optional
-#define MIMI_SECRET_MQTT_PASSWORD   ""              // optional
+#define MIMI_SECRET_MQTT_USERNAME   ""              // optional; use only with TLS
+#define MIMI_SECRET_MQTT_PASSWORD   ""              // optional; use only with TLS
 ```
 
 Then build and flash:
@@ -179,7 +179,7 @@ mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy
 mimi> set_search_key BSA...        # set Brave Search API key
 mimi> set_tavily_key tvly-...      # set Tavily API key (preferred)
-mimi> set_mqtt_config mqtt://broker:1883 [client_id] [username] [password]  # set MQTT broker
+mimi> set_mqtt_config mqtts://broker.example.com:8883 [client_id] [username] [password]  # set MQTT broker
 mimi> config_show                  # show all config (masked)
 mimi> config_reset                 # clear NVS, revert to build-time defaults
 ```

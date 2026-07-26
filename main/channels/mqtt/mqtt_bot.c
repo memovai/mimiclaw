@@ -1,4 +1,5 @@
 #include "mqtt_bot.h"
+#include "mqtt_message.h"
 #include "mimi_config.h"
 #include "bus/message_bus.h"
 #include "wifi/wifi_manager.h"
@@ -11,6 +12,7 @@
 #include "esp_log.h"
 #include "esp_event.h"
 #include "esp_system.h"
+#include "esp_crt_bundle.h"
 #include "mqtt_client.h"
 #include "nvs.h"
 #include "cJSON.h"
@@ -19,46 +21,71 @@
 static const char *TAG = "mqtt";
 
 /* ── Configuration state ────────────────────────────────────── */
-static char s_broker_uri[256] = MIMI_SECRET_MQTT_URI;
-static char s_client_id[64] = MIMI_SECRET_MQTT_CLIENT_ID;
-static char s_username[128] = MIMI_SECRET_MQTT_USERNAME;
-static char s_password[128] = MIMI_SECRET_MQTT_PASSWORD;
-static char s_subscribe_topic[128] = MIMI_MQTT_DEFAULT_SUB_TOPIC;
+static char s_broker_uri[256] = {0};
+static char s_client_id[64] = {0};
+static char s_username[128] = {0};
+static char s_password[128] = {0};
+static char s_subscribe_topic[128] = {0};
 
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 static bool s_connected = false;
 static bool s_enabled = false;
+static mqtt_message_assembly_t s_inbound_assembly = {0};
 
-/* ── Message deduplication ──────────────────────────────────── */
-#define MQTT_DEDUP_CACHE_SIZE 64
-
-static uint64_t s_seen_msg_keys[MQTT_DEDUP_CACHE_SIZE] = {0};
-static size_t s_seen_msg_idx = 0;
-
-static uint64_t fnv1a64(const char *s)
+static void dispatch_inbound_message(char *topic, char *data)
 {
-    uint64_t h = 1469598103934665603ULL;
-    if (!s) return h;
-    while (*s) {
-        h ^= (unsigned char)(*s++);
-        h *= 1099511628211ULL;
-    }
-    return h;
-}
+    /*
+     * Process every complete PUBLISH. Repeated topic/payload pairs can be
+     * intentional commands, so they are not safe application-level dedup keys.
+     */
+    ESP_LOGI(TAG, "Received on topic [%s]: %.60s%s",
+             topic, data, strlen(data) > 60 ? "..." : "");
 
-static bool dedup_check_and_record(const char *topic, const char *payload)
-{
-    /* Combine topic and payload for unique key */
-    char combined[320];
-    snprintf(combined, sizeof(combined), "%s:%s", topic, payload);
-    uint64_t key = fnv1a64(combined);
+    /* Parse JSON payload if present, otherwise treat as plain text. */
+    char *content = NULL;
+    cJSON *root = cJSON_Parse(data);
+    if (root) {
+        cJSON *text = cJSON_GetObjectItem(root, "text");
+        cJSON *message = cJSON_GetObjectItem(root, "message");
+        cJSON *payload_field = cJSON_GetObjectItem(root, "payload");
 
-    for (size_t i = 0; i < MQTT_DEDUP_CACHE_SIZE; i++) {
-        if (s_seen_msg_keys[i] == key) return true;
+        const char *extracted = NULL;
+        if (text && cJSON_IsString(text)) {
+            extracted = text->valuestring;
+        } else if (message && cJSON_IsString(message)) {
+            extracted = message->valuestring;
+        } else if (payload_field && cJSON_IsString(payload_field)) {
+            extracted = payload_field->valuestring;
+        }
+
+        if (extracted && extracted[0]) {
+            content = strdup(extracted);
+        }
+        cJSON_Delete(root);
     }
-    s_seen_msg_keys[s_seen_msg_idx] = key;
-    s_seen_msg_idx = (s_seen_msg_idx + 1) % MQTT_DEDUP_CACHE_SIZE;
-    return false;
+
+    if (!content) {
+        content = strdup(data);
+    }
+
+    if (content && content[0]) {
+        mimi_msg_t msg = {0};
+        strncpy(msg.channel, MIMI_CHAN_MQTT, sizeof(msg.channel) - 1);
+        strncpy(msg.chat_id, topic, sizeof(msg.chat_id) - 1);
+        msg.content = content;
+
+        if (message_bus_push_inbound(&msg) != ESP_OK) {
+            ESP_LOGW(TAG, "Inbound queue full, dropping MQTT message");
+            free(msg.content);
+        } else {
+            ESP_LOGI(TAG, "Message pushed to inbound bus: %s", topic);
+        }
+    } else {
+        free(content);
+    }
+
+    free(topic);
+    free(data);
 }
 
 /* ── MQTT Event Handler ─────────────────────────────────────── */
@@ -88,6 +115,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
 
         case MQTT_EVENT_DISCONNECTED:
             s_connected = false;
+            mqtt_message_assembly_reset(&s_inbound_assembly);
             ESP_LOGW(TAG, "MQTT disconnected");
             break;
 
@@ -105,81 +133,54 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
 
         case MQTT_EVENT_DATA:
             {
-                /* Extract topic and data */
-                char *topic = strndup(event->topic, event->topic_len);
-                char *data = strndup(event->data, event->data_len);
-
-                if (!topic || !data) {
-                    free(topic);
-                    free(data);
+                if (event->topic_len < 0 ||
+                    event->data_len < 0 ||
+                    event->current_data_offset < 0 ||
+                    event->total_data_len < 0) {
+                    ESP_LOGW(TAG, "Dropping MQTT event with invalid lengths");
+                    mqtt_message_assembly_reset(&s_inbound_assembly);
                     break;
                 }
 
-                ESP_LOGI(TAG, "Received on topic [%.*s]: %.60s%s",
-                         event->topic_len, event->topic,
-                         data,
-                         event->data_len > 60 ? "..." : "");
+                size_t data_len = (size_t)event->data_len;
+                size_t total_len = event->total_data_len > 0
+                    ? (size_t)event->total_data_len
+                    : data_len;
+                char *topic = NULL;
+                char *data = NULL;
 
-                /* Skip if this is our own message (deduplication) */
-                if (dedup_check_and_record(topic, data)) {
-                    ESP_LOGD(TAG, "Duplicate message, skipping");
-                    free(topic);
-                    free(data);
+                mqtt_message_assembly_result_t result =
+                    mqtt_message_assembly_append(
+                        &s_inbound_assembly,
+                        event->msg_id,
+                        event->topic,
+                        (size_t)event->topic_len,
+                        event->data,
+                        data_len,
+                        (size_t)event->current_data_offset,
+                        total_len,
+                        MIMI_MQTT_MAX_MSG_LEN,
+                        &topic,
+                        &data);
+
+                if (result == MQTT_MESSAGE_ASSEMBLY_ERROR) {
+                    ESP_LOGW(TAG,
+                             "Dropping malformed or oversized MQTT message "
+                             "(offset=%d, chunk=%d, total=%d)",
+                             event->current_data_offset,
+                             event->data_len,
+                             event->total_data_len);
                     break;
                 }
 
-                /* Parse JSON payload if present, otherwise treat as plain text */
-                char *content = NULL;
-                cJSON *root = cJSON_Parse(data);
-                if (root) {
-                    /* Try to extract "text" or "message" field from JSON */
-                    cJSON *text = cJSON_GetObjectItem(root, "text");
-                    cJSON *message = cJSON_GetObjectItem(root, "message");
-                    cJSON *payload_field = cJSON_GetObjectItem(root, "payload");
-
-                    const char *extracted = NULL;
-                    if (text && cJSON_IsString(text)) {
-                        extracted = text->valuestring;
-                    } else if (message && cJSON_IsString(message)) {
-                        extracted = message->valuestring;
-                    } else if (payload_field && cJSON_IsString(payload_field)) {
-                        extracted = payload_field->valuestring;
-                    }
-
-                    if (extracted && extracted[0]) {
-                        content = strdup(extracted);
-                    }
-                    cJSON_Delete(root);
+                if (result == MQTT_MESSAGE_ASSEMBLY_COMPLETE) {
+                    dispatch_inbound_message(topic, data);
                 }
-
-                /* If not JSON or no recognized field, use raw data */
-                if (!content) {
-                    content = strdup(data);
-                }
-
-                if (content && content[0]) {
-                    /* Use topic as chat_id for session routing */
-                    mimi_msg_t msg = {0};
-                    strncpy(msg.channel, MIMI_CHAN_MQTT, sizeof(msg.channel) - 1);
-                    strncpy(msg.chat_id, topic, sizeof(msg.chat_id) - 1);
-                    msg.content = content;
-
-                    if (message_bus_push_inbound(&msg) != ESP_OK) {
-                        ESP_LOGW(TAG, "Inbound queue full, dropping MQTT message");
-                        free(msg.content);
-                    } else {
-                        ESP_LOGI(TAG, "Message pushed to inbound bus: %s", topic);
-                    }
-                } else {
-                    free(content);
-                }
-
-                free(topic);
-                free(data);
             }
             break;
 
         case MQTT_EVENT_ERROR:
+            mqtt_message_assembly_reset(&s_inbound_assembly);
             ESP_LOGE(TAG, "MQTT error: %d", event->error_handle->error_type);
             break;
 
@@ -193,69 +194,132 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     }
 }
 
+static void load_default_string(const char *name, const char *value,
+                                char *destination, size_t capacity)
+{
+    destination[0] = '\0';
+    if (!value || value[0] == '\0') {
+        return;
+    }
+
+    if (!mqtt_copy_string(destination, capacity, value)) {
+        ESP_LOGE(TAG, "Ignoring oversized build-time %s "
+                 "(maximum %u bytes)",
+                 name, (unsigned)(capacity - 1));
+    }
+}
+
+static void load_nvs_string(nvs_handle_t nvs, const char *key,
+                            char *destination, size_t capacity)
+{
+    size_t required = 0;
+    esp_err_t err = nvs_get_str(nvs, key, NULL, &required);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Unable to read MQTT setting %s: %s",
+                 key, esp_err_to_name(err));
+        return;
+    }
+    if (required == 0 || required > capacity) {
+        ESP_LOGW(TAG,
+                 "Ignoring oversized MQTT setting %s (%u bytes, maximum %u)",
+                 key, (unsigned)required, (unsigned)capacity);
+        err = nvs_erase_key(nvs, key);
+        if (err == ESP_OK) {
+            err = nvs_commit(nvs);
+        }
+        if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "Unable to clear MQTT setting %s: %s",
+                     key, esp_err_to_name(err));
+        }
+        return;
+    }
+
+    char *value = malloc(required);
+    if (!value) {
+        ESP_LOGW(TAG, "Unable to allocate MQTT setting %s", key);
+        return;
+    }
+
+    err = nvs_get_str(nvs, key, value, &required);
+    if (err == ESP_OK && value[0] != '\0') {
+        mqtt_copy_string(destination, capacity, value);
+    } else if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Unable to load MQTT setting %s: %s",
+                 key, esp_err_to_name(err));
+    }
+    free(value);
+}
+
+static esp_err_t validate_mqtt_value(const char *name, const char *value,
+                                     size_t capacity, bool required)
+{
+    if (!value || value[0] == '\0') {
+        if (required) {
+            ESP_LOGE(TAG, "%s is required", name);
+            return ESP_ERR_INVALID_ARG;
+        }
+        return ESP_OK;
+    }
+
+    if (!mqtt_string_fits(value, capacity)) {
+        ESP_LOGE(TAG, "%s is too long (maximum %u bytes)",
+                 name, (unsigned)(capacity - 1));
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t store_optional_nvs_string(nvs_handle_t nvs,
+                                           const char *key,
+                                           const char *value)
+{
+    if (value && value[0] != '\0') {
+        return nvs_set_str(nvs, key, value);
+    }
+
+    esp_err_t err = nvs_erase_key(nvs, key);
+    return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
+}
+
 /* ── Public API ─────────────────────────────────────────────── */
 
 esp_err_t mqtt_bot_init(void)
 {
     /* Start with build-time secrets as defaults */
-#ifdef MIMI_SECRET_MQTT_URI
-    if (MIMI_SECRET_MQTT_URI[0] != '\0') {
-        strncpy(s_broker_uri, MIMI_SECRET_MQTT_URI, sizeof(s_broker_uri) - 1);
-    }
-#endif
-#ifdef MIMI_SECRET_MQTT_CLIENT_ID
-    if (MIMI_SECRET_MQTT_CLIENT_ID[0] != '\0') {
-        strncpy(s_client_id, MIMI_SECRET_MQTT_CLIENT_ID, sizeof(s_client_id) - 1);
-    }
-#endif
-#ifdef MIMI_SECRET_MQTT_USERNAME
-    if (MIMI_SECRET_MQTT_USERNAME[0] != '\0') {
-        strncpy(s_username, MIMI_SECRET_MQTT_USERNAME, sizeof(s_username) - 1);
-    }
-#endif
-#ifdef MIMI_SECRET_MQTT_PASSWORD
-    if (MIMI_SECRET_MQTT_PASSWORD[0] != '\0') {
-        strncpy(s_password, MIMI_SECRET_MQTT_PASSWORD, sizeof(s_password) - 1);
-    }
-#endif
+    load_default_string("broker URI", MIMI_SECRET_MQTT_URI,
+                        s_broker_uri, sizeof(s_broker_uri));
+    load_default_string("client ID", MIMI_SECRET_MQTT_CLIENT_ID,
+                        s_client_id, sizeof(s_client_id));
+    load_default_string("username", MIMI_SECRET_MQTT_USERNAME,
+                        s_username, sizeof(s_username));
+    load_default_string("password", MIMI_SECRET_MQTT_PASSWORD,
+                        s_password, sizeof(s_password));
+    load_default_string("subscribe topic", MIMI_MQTT_DEFAULT_SUB_TOPIC,
+                        s_subscribe_topic, sizeof(s_subscribe_topic));
 
     /* Load configuration from NVS (overrides build-time) */
     nvs_handle_t nvs;
-    if (nvs_open(MIMI_NVS_MQTT, NVS_READONLY, &nvs) == ESP_OK) {
-        char tmp[256];
-        size_t len;
-
-        len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_MQTT_URI, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_broker_uri, tmp, sizeof(s_broker_uri) - 1);
-        }
-
-        len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_MQTT_CLIENT_ID, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_client_id, tmp, sizeof(s_client_id) - 1);
-        }
-
-        len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_MQTT_USERNAME, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_username, tmp, sizeof(s_username) - 1);
-        }
-
-        len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_MQTT_PASSWORD, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_password, tmp, sizeof(s_password) - 1);
-        }
-
-        len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_MQTT_SUB_TOPIC, tmp, &len) == ESP_OK && tmp[0]) {
-            strncpy(s_subscribe_topic, tmp, sizeof(s_subscribe_topic) - 1);
-        }
+    if (nvs_open(MIMI_NVS_MQTT, NVS_READWRITE, &nvs) == ESP_OK) {
+        load_nvs_string(nvs, MIMI_NVS_KEY_MQTT_URI,
+                        s_broker_uri, sizeof(s_broker_uri));
+        load_nvs_string(nvs, MIMI_NVS_KEY_MQTT_CLIENT_ID,
+                        s_client_id, sizeof(s_client_id));
+        load_nvs_string(nvs, MIMI_NVS_KEY_MQTT_USERNAME,
+                        s_username, sizeof(s_username));
+        load_nvs_string(nvs, MIMI_NVS_KEY_MQTT_PASSWORD,
+                        s_password, sizeof(s_password));
+        load_nvs_string(nvs, MIMI_NVS_KEY_MQTT_SUB_TOPIC,
+                        s_subscribe_topic, sizeof(s_subscribe_topic));
 
         nvs_close(nvs);
     }
 
     /* Check if MQTT is configured */
-    if (s_broker_uri[0] != '\0') {
-        s_enabled = true;
+    s_enabled = (s_broker_uri[0] != '\0');
+    if (s_enabled) {
         ESP_LOGI(TAG, "MQTT configured: %s (client_id=%s)",
                  s_broker_uri,
                  s_client_id[0] ? s_client_id : "(auto)");
@@ -279,19 +343,20 @@ esp_err_t mqtt_bot_start(void)
     }
 
     /* Generate client ID if not set */
-    char client_id[80];
+    char client_id[80] = {0};
     if (s_client_id[0] == '\0') {
         uint8_t mac[6];
         esp_wifi_get_mac(WIFI_IF_STA, mac);
         snprintf(client_id, sizeof(client_id), "mimiclaw_%02x%02x%02x%02x%02x%02x",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     } else {
-        strncpy(client_id, s_client_id, sizeof(client_id) - 1);
+        mqtt_copy_string(client_id, sizeof(client_id), s_client_id);
     }
 
     /* Configure MQTT client */
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = s_broker_uri,
+        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
         .credentials.client_id = client_id,
         .credentials.username = s_username[0] ? s_username : NULL,
         .credentials.authentication.password = s_password[0] ? s_password : NULL,
@@ -326,6 +391,7 @@ esp_err_t mqtt_bot_start(void)
 esp_err_t mqtt_bot_stop(void)
 {
     if (s_mqtt_client == NULL) {
+        mqtt_message_assembly_reset(&s_inbound_assembly);
         return ESP_OK;
     }
 
@@ -337,6 +403,7 @@ esp_err_t mqtt_bot_stop(void)
     esp_mqtt_client_destroy(s_mqtt_client);
     s_mqtt_client = NULL;
     s_connected = false;
+    mqtt_message_assembly_reset(&s_inbound_assembly);
 
     ESP_LOGI(TAG, "MQTT client stopped");
     return ESP_OK;
@@ -344,6 +411,10 @@ esp_err_t mqtt_bot_stop(void)
 
 esp_err_t mqtt_send_message(const char *topic, const char *text)
 {
+    if (!topic || topic[0] == '\0' || !text || text[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     if (!s_enabled || s_mqtt_client == NULL) {
         ESP_LOGW(TAG, "Cannot send: MQTT not configured or not started");
         return ESP_ERR_INVALID_STATE;
@@ -356,14 +427,10 @@ esp_err_t mqtt_send_message(const char *topic, const char *text)
 
     /* Convert request topic to response topic */
     char response_topic[256];
-    if (strstr(topic, "/request")) {
-        /* Replace /request with /response */
-        size_t len = strlen(topic);
-        size_t prefix_len = strstr(topic, "/request") - topic;
-        snprintf(response_topic, sizeof(response_topic), "%.*s/response", (int)prefix_len, topic);
-    } else {
-        /* No /request suffix, just use as-is */
-        strncpy(response_topic, topic, sizeof(response_topic) - 1);
+    if (!mqtt_build_response_topic(topic, response_topic,
+                                   sizeof(response_topic))) {
+        ESP_LOGW(TAG, "Invalid or oversized MQTT publish topic");
+        return ESP_ERR_INVALID_ARG;
     }
 
     /* Split long messages if needed */
@@ -385,8 +452,13 @@ esp_err_t mqtt_send_message(const char *topic, const char *text)
 
         /* Build JSON payload */
         cJSON *payload = cJSON_CreateObject();
-        cJSON_AddStringToObject(payload, "text", segment);
-        cJSON_AddStringToObject(payload, "source", "mimiclaw");
+        if (!payload ||
+            !cJSON_AddStringToObject(payload, "text", segment) ||
+            !cJSON_AddStringToObject(payload, "source", "mimiclaw")) {
+            cJSON_Delete(payload);
+            free(segment);
+            return ESP_ERR_NO_MEM;
+        }
         char *json_str = cJSON_PrintUnformatted(payload);
         cJSON_Delete(payload);
         free(segment);
@@ -417,45 +489,71 @@ esp_err_t mqtt_send_message(const char *topic, const char *text)
 esp_err_t mqtt_set_config(const char *broker_uri, const char *client_id,
                           const char *username, const char *password)
 {
+    esp_err_t err = validate_mqtt_value(
+        "Broker URI", broker_uri, sizeof(s_broker_uri), true);
+    if (err == ESP_OK) {
+        err = validate_mqtt_value(
+            "Client ID", client_id, sizeof(s_client_id), false);
+    }
+    if (err == ESP_OK) {
+        err = validate_mqtt_value(
+            "Username", username, sizeof(s_username), false);
+    }
+    if (err == ESP_OK) {
+        err = validate_mqtt_value(
+            "Password", password, sizeof(s_password), false);
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
     nvs_handle_t nvs;
-    esp_err_t err = nvs_open(MIMI_NVS_MQTT, NVS_READWRITE, &nvs);
+    err = nvs_open(MIMI_NVS_MQTT, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open NVS: %s", esp_err_to_name(err));
         return err;
     }
 
-    /* Save broker URI (required) */
-    if (broker_uri && broker_uri[0]) {
-        nvs_set_str(nvs, MIMI_NVS_KEY_MQTT_URI, broker_uri);
-        strncpy(s_broker_uri, broker_uri, sizeof(s_broker_uri) - 1);
+    err = nvs_set_str(nvs, MIMI_NVS_KEY_MQTT_URI, broker_uri);
+    if (err == ESP_OK) {
+        err = store_optional_nvs_string(
+            nvs, MIMI_NVS_KEY_MQTT_CLIENT_ID, client_id);
+    }
+    if (err == ESP_OK) {
+        err = store_optional_nvs_string(
+            nvs, MIMI_NVS_KEY_MQTT_USERNAME, username);
+    }
+    if (err == ESP_OK) {
+        err = store_optional_nvs_string(
+            nvs, MIMI_NVS_KEY_MQTT_PASSWORD, password);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save MQTT config: %s",
+                 esp_err_to_name(err));
+        return err;
     }
 
-    /* Save client ID (optional) */
+    mqtt_copy_string(s_broker_uri, sizeof(s_broker_uri), broker_uri);
     if (client_id && client_id[0]) {
-        nvs_set_str(nvs, MIMI_NVS_KEY_MQTT_CLIENT_ID, client_id);
-        strncpy(s_client_id, client_id, sizeof(s_client_id) - 1);
-    }
-
-    /* Save username (optional) */
-    if (username && username[0]) {
-        nvs_set_str(nvs, MIMI_NVS_KEY_MQTT_USERNAME, username);
-        strncpy(s_username, username, sizeof(s_username) - 1);
+        mqtt_copy_string(s_client_id, sizeof(s_client_id), client_id);
     } else {
-        nvs_erase_key(nvs, MIMI_NVS_KEY_MQTT_USERNAME);
+        s_client_id[0] = '\0';
+    }
+    if (username && username[0]) {
+        mqtt_copy_string(s_username, sizeof(s_username), username);
+    } else {
         s_username[0] = '\0';
     }
-
-    /* Save password (optional) */
     if (password && password[0]) {
-        nvs_set_str(nvs, MIMI_NVS_KEY_MQTT_PASSWORD, password);
-        strncpy(s_password, password, sizeof(s_password) - 1);
+        mqtt_copy_string(s_password, sizeof(s_password), password);
     } else {
-        nvs_erase_key(nvs, MIMI_NVS_KEY_MQTT_PASSWORD);
         s_password[0] = '\0';
     }
-
-    nvs_commit(nvs);
-    nvs_close(nvs);
 
     s_enabled = (s_broker_uri[0] != '\0');
     ESP_LOGI(TAG, "MQTT config saved: %s", s_broker_uri);
@@ -465,7 +563,9 @@ esp_err_t mqtt_set_config(const char *broker_uri, const char *client_id,
 
 esp_err_t mqtt_set_subscribe_topic(const char *topic_pattern)
 {
-    if (!topic_pattern || !topic_pattern[0]) {
+    if (validate_mqtt_value(
+            "Subscribe topic", topic_pattern,
+            sizeof(s_subscribe_topic), true) != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -475,11 +575,20 @@ esp_err_t mqtt_set_subscribe_topic(const char *topic_pattern)
         return err;
     }
 
-    nvs_set_str(nvs, MIMI_NVS_KEY_MQTT_SUB_TOPIC, topic_pattern);
-    nvs_commit(nvs);
+    err = nvs_set_str(nvs, MIMI_NVS_KEY_MQTT_SUB_TOPIC, topic_pattern);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
     nvs_close(nvs);
 
-    strncpy(s_subscribe_topic, topic_pattern, sizeof(s_subscribe_topic) - 1);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save MQTT subscribe topic: %s",
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    mqtt_copy_string(s_subscribe_topic, sizeof(s_subscribe_topic),
+                     topic_pattern);
     ESP_LOGI(TAG, "Subscribe topic set: %s", s_subscribe_topic);
 
     /* Re-subscribe if already connected */

@@ -562,7 +562,7 @@ static int cmd_skill_search(int argc, char **argv)
 static void print_config(const char *label, const char *ns, const char *key,
                          const char *build_val, bool mask)
 {
-    char nvs_val[128] = {0};
+    char nvs_val[256] = {0};
     const char *source = "not set";
     const char *display = "(empty)";
 
@@ -629,6 +629,11 @@ static int cmd_config_show(int argc, char **argv)
     print_config_u16("Proxy Port", MIMI_NVS_PROXY, MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
     print_config("Tavily Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_TAVILY_KEY, MIMI_SECRET_TAVILY_KEY, true);
+    print_config("MQTT Broker", MIMI_NVS_MQTT, MIMI_NVS_KEY_MQTT_URI, MIMI_SECRET_MQTT_URI, false);
+    print_config("MQTT Client", MIMI_NVS_MQTT, MIMI_NVS_KEY_MQTT_CLIENT_ID, MIMI_SECRET_MQTT_CLIENT_ID, false);
+    print_config("MQTT User", MIMI_NVS_MQTT, MIMI_NVS_KEY_MQTT_USERNAME, MIMI_SECRET_MQTT_USERNAME, false);
+    print_config("MQTT Pass", MIMI_NVS_MQTT, MIMI_NVS_KEY_MQTT_PASSWORD, MIMI_SECRET_MQTT_PASSWORD, true);
+    print_config("MQTT Sub", MIMI_NVS_MQTT, MIMI_NVS_KEY_MQTT_SUB_TOPIC, MIMI_MQTT_DEFAULT_SUB_TOPIC, false);
     printf("=============================\n");
     return 0;
 }
@@ -637,9 +642,14 @@ static int cmd_config_show(int argc, char **argv)
 static int cmd_config_reset(int argc, char **argv)
 {
     const char *namespaces[] = {
-        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH
+        MIMI_NVS_WIFI,
+        MIMI_NVS_TG,
+        MIMI_NVS_LLM,
+        MIMI_NVS_PROXY,
+        MIMI_NVS_SEARCH,
+        MIMI_NVS_MQTT,
     };
-    for (int i = 0; i < 5; i++) {
+    for (size_t i = 0; i < sizeof(namespaces) / sizeof(namespaces[0]); i++) {
         nvs_handle_t nvs;
         if (nvs_open(namespaces[i], NVS_READWRITE, &nvs) == ESP_OK) {
             nvs_erase_all(nvs);
@@ -927,7 +937,7 @@ esp_err_t serial_cli_init(void)
     esp_console_cmd_register(&feishu_send_cmd);
 
     /* set_mqtt_config */
-    mqtt_config_args.uri = arg_str1(NULL, NULL, "<uri>", "MQTT broker URI (e.g. mqtt://broker:1883)");
+    mqtt_config_args.uri = arg_str1(NULL, NULL, "<uri>", "MQTT broker URI (e.g. mqtts://broker.example.com:8883)");
     mqtt_config_args.client_id = arg_str0(NULL, NULL, "<client_id>", "Client ID (optional)");
     mqtt_config_args.username = arg_str0(NULL, NULL, "<username>", "Username (optional)");
     mqtt_config_args.password = arg_str0(NULL, NULL, "<password>", "Password (optional)");

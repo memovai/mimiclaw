@@ -23,14 +23,15 @@ esp_err_t mqtt_bot_stop(void);
 
 /**
  * Send a text message to an MQTT topic.
- * @param topic    The topic to publish to (chat_id is used as topic)
+ * A trailing "/request" suffix is mapped to "/response".
+ * @param topic    MQTT topic to publish to
  * @param text     Message text to publish
  */
 esp_err_t mqtt_send_message(const char *topic, const char *text);
 
 /**
  * Save MQTT configuration to NVS.
- * @param broker_uri  MQTT broker URI (e.g. "mqtt://broker.hivemq.com:1883")
+ * @param broker_uri  MQTT broker URI (e.g. "mqtts://broker.example.com:8883")
  * @param client_id   MQTT client ID (optional, will auto-generate if empty)
  * @param username    MQTT username (optional)
  * @param password    MQTT password (optional)

@@ -6,6 +6,7 @@ idf_component_register(
         "channels/telegram/telegram_bot.c"
         "channels/feishu/feishu_bot.c"
         "channels/mqtt/mqtt_bot.c"
+        "channels/mqtt/mqtt_message.c"
         "llm/llm_proxy.c"
         "agent/agent_loop.c"
         "agent/context_builder.c"

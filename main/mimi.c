@@ -188,7 +188,11 @@ void app_main(void)
         ESP_ERROR_CHECK(agent_loop_start());
         ESP_ERROR_CHECK(telegram_bot_start());
         ESP_ERROR_CHECK(feishu_bot_start());
-        ESP_ERROR_CHECK(mqtt_bot_start());
+        esp_err_t mqtt_err = mqtt_bot_start();
+        if (mqtt_err != ESP_OK) {
+            ESP_LOGW(TAG, "MQTT start failed; continuing without MQTT: %s",
+                     esp_err_to_name(mqtt_err));
+        }
         cron_service_start();
         heartbeat_start();
         ESP_ERROR_CHECK(ws_server_start());
