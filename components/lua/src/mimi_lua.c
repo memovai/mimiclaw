@@ -268,13 +268,24 @@ esp_err_t mimi_lua_check(const char *path, char *output, size_t output_size)
 {
     if (!path || !output || output_size == 0) return ESP_ERR_INVALID_ARG;
 
-    lua_ctx_t c = { .max = MIMI_LUA_HEAP_MAX };
-    lua_State *L = lua_newstate(l_alloc, &c);
-    if (!L) {
-        snprintf(output, output_size, "Error: interpreter out of memory");
+    /* ctx is heap-allocated (not on the caller's stack): it embeds a ~1 KB
+     * print buffer, and Lua's compiler/file-reader recursion would otherwise
+     * overflow small task stacks (e.g. the 4 KB serial-CLI task). */
+    lua_ctx_t *c = heap_caps_calloc(1, sizeof(lua_ctx_t),
+                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!c) {
+        snprintf(output, output_size, "Error: out of memory");
         return ESP_ERR_NO_MEM;
     }
-    *(lua_ctx_t **)lua_getextraspace(L) = &c;
+    c->max = MIMI_LUA_HEAP_MAX;
+
+    lua_State *L = lua_newstate(l_alloc, c);
+    if (!L) {
+        snprintf(output, output_size, "Error: interpreter out of memory");
+        heap_caps_free(c);
+        return ESP_ERR_NO_MEM;
+    }
+    *(lua_ctx_t **)lua_getextraspace(L) = c;
 
     /* "t" = text only: precompiled bytecode is rejected (sandbox escape). */
     int r = luaL_loadfilex(L, path, "t");
@@ -285,6 +296,7 @@ esp_err_t mimi_lua_check(const char *path, char *output, size_t output_size)
         snprintf(output, output_size, "Error: %s", err ? err : "unknown compile error");
     }
     lua_close(L);
+    heap_caps_free(c);
     return ESP_OK;
 }
 
