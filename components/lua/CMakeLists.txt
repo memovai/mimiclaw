@@ -16,6 +16,7 @@ idf_component_register(
         "src/mimi_lua.c"
         "src/lua_mod_json.c"
         "src/lua_mod_log.c"
+        "src/lua_mod_storage.c"
     INCLUDE_DIRS
         "include"
         "lua"

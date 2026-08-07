@@ -109,20 +109,33 @@ size_t skill_loader_build_summary(char *buf, size_t size)
 
     size_t off = 0;
     struct dirent *ent;
-    /* SPIFFS readdir returns filenames relative to the mount point (e.g. "skills/weather.md").
-       We match entries that start with "skills/" and end with ".md". */
+    /* SPIFFS readdir returns path-like names relative to the mount point.
+       Two skill layouts are recognized:
+         L0 prompt-only:  skills/<name>.md
+         L2 scripted:     skills/<name>/SKILL.md
+       Anything deeper (script files, reference docs, assets) is part of a
+       skill, not a skill itself, and must not be listed. */
     const char *skills_subdir = "skills/";
     const size_t subdir_len = strlen(skills_subdir);
 
     while ((ent = readdir(dir)) != NULL && off < size - 1) {
         const char *name = ent->d_name;
 
-        /* Match files under skills/ with .md extension */
         if (strncmp(name, skills_subdir, subdir_len) != 0) continue;
 
         size_t name_len = strlen(name);
-        if (name_len < subdir_len + 4) continue;  /* at least "skills/x.md" */
+        if (name_len < subdir_len + 4) continue;
         if (strcmp(name + name_len - 3, ".md") != 0) continue;
+
+        const char *rel = name + subdir_len;              /* after "skills/" */
+        const char *slash = strchr(rel, '/');
+        if (slash == NULL) {
+            /* L0: exactly skills/<name>.md, no further slashes — accept. */
+        } else {
+            /* L2: must be skills/<name>/SKILL.md, exactly one slash. */
+            if (strchr(slash + 1, '/') != NULL) continue;  /* deeper nesting */
+            if (strcmp(slash + 1, "SKILL.md") != 0) continue;
+        }
 
         /* Build full path */
         char full_path[296];

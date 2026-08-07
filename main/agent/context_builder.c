@@ -77,7 +77,13 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "## Skills\n"
         "Skills are specialized instruction files stored in " MIMI_SKILLS_PREFIX ".\n"
         "When a task matches a skill, read the full skill file for detailed instructions.\n"
-        "You can create new skills using write_file to " MIMI_SKILLS_PREFIX "<name>.md.\n");
+        "Skills come in two tiers: prompt-only Markdown skills, and scripted skills that "
+        "carry a Lua script (skills/<name>/SKILL.md + scripts/main.lua).\n"
+        "When the user asks for a NEW capability that needs a loop, computation, hardware "
+        "timing, persistent state, or combining tools deterministically, read and follow "
+        "skills/skill-creator-lua/SKILL.md to author it. Lua module references live in "
+        "/spiffs/lua-api/ (read on demand).\n"
+        "You can create prompt-only skills with write_file to " MIMI_SKILLS_PREFIX "<name>.md.\n");
 
     /* Bootstrap files */
     off = append_file(buf, size, off, MIMI_SOUL_FILE, "Personality");

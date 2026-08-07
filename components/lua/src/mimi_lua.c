@@ -232,9 +232,10 @@ static lua_State *new_sandbox(lua_ctx_t *c, const char *args_json)
     lua_setglobal(L, "print");
 
     /* Builtin modules. */
-    luaL_requiref(L, "json",  mimi_luaopen_json, 1); lua_pop(L, 1);
-    luaL_requiref(L, "log",   mimi_luaopen_log,  1); lua_pop(L, 1);
-    luaL_requiref(L, "timer", luaopen_mimi_timer, 1); lua_pop(L, 1);
+    luaL_requiref(L, "json",    mimi_luaopen_json,    1); lua_pop(L, 1);
+    luaL_requiref(L, "log",     mimi_luaopen_log,     1); lua_pop(L, 1);
+    luaL_requiref(L, "timer",   luaopen_mimi_timer,   1); lua_pop(L, 1);
+    luaL_requiref(L, "storage", mimi_luaopen_storage, 1); lua_pop(L, 1);
 
     /* Externally registered modules (gpio, ...). */
     for (int i = 0; i < s_mod_count; i++) {
