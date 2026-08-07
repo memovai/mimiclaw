@@ -2,9 +2,7 @@
 #include "tools/tool_registry.h"
 #include "mimi_lua.h"
 
-#include <stdbool.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -16,31 +14,13 @@ static const char *TAG = "lua_tool";
 
 #define TOOL_BRIDGE_OUT_SIZE (4 * 1024)
 
-/* Tools scripts may call. Deliberately excludes writes (write_file,
- * edit_file), scheduling (cron_*), and lua_* (self-replication).
- * Network capability stays in the C tool layer; scripts get an
- * allowlisted call into it, never a socket. */
-static const char *s_allowed[] = {
-    "web_search",
-    "get_current_time",
-    "read_file",
-    "list_dir",
-};
-
-static bool tool_allowed(const char *name)
-{
-    for (size_t i = 0; i < sizeof(s_allowed) / sizeof(s_allowed[0]); i++) {
-        if (strcmp(name, s_allowed[i]) == 0) return true;
-    }
-    return false;
-}
+/* NOTE: which tools a script may call (and under what policy) is an open
+ * research question; deferred. For now the bridge passes any tool name
+ * straight through to the registry with no allow/deny filtering. */
 
 static int t_invoke(lua_State *L)
 {
     const char *name = luaL_checkstring(L, 1);
-    if (!tool_allowed(name)) {
-        return luaL_error(L, "tool.invoke: '%s' is not callable from scripts", name);
-    }
 
     char *args_json = NULL;
     if (!lua_isnoneornil(L, 2)) {
@@ -79,21 +59,10 @@ static int t_invoke(lua_State *L)
     return 1;
 }
 
-static int t_list(lua_State *L)
-{
-    lua_newtable(L);
-    for (size_t i = 0; i < sizeof(s_allowed) / sizeof(s_allowed[0]); i++) {
-        lua_pushstring(L, s_allowed[i]);
-        lua_rawseti(L, -2, (lua_Integer)(i + 1));
-    }
-    return 1;
-}
-
 static int luaopen_mimi_tool(lua_State *L)
 {
     static const luaL_Reg fns[] = {
         {"invoke", t_invoke},
-        {"list",   t_list},
         {NULL, NULL},
     };
     luaL_newlib(L, fns);

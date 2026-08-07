@@ -102,13 +102,12 @@ Scripts see exactly the registered modules:
 | `json` | cJSON wrapper | encode/decode |
 | `args` | arg parsing/validation | schema-checked access to `args_json`, ESP-Claw-style |
 | `log` | `ESP_LOG*` | tagged `lua:<skill>` |
-| `tool` | bridge into `tool_registry_execute` | `tool.invoke(name, args)`, allowlisted subset only: `web_search`, `get_current_time`, `read_file`, `list_dir`. Excludes writes, `cron_*`, and `lua_*` (self-replication). Network capability stays in the C tool layer — scripts get an allowlisted call into it, never a socket |
+| `tool` | bridge into `tool_registry_execute` | `tool.invoke(name, args)` calls any registered tool. Which tools a script may call, and under what policy, is an open research question and is deferred — the bridge currently applies no filtering |
 
-Every physical side effect thus flows through the same deterministic policy
-layer as the C tools — the script tier adds expressiveness, not privilege.
-The `tool` bridge additionally means the script tier's capabilities grow with
-the tool registry for free: any future C tool becomes script-callable by
-adding one line to the bridge allowlist, with no sandbox changes.
+The `tool` bridge means the script tier's capabilities grow with the tool
+registry for free: any C tool is immediately script-callable with no sandbox
+changes. (Whether scripts should be restricted to a subset — and how — is a
+research question tracked separately, not a settled part of this design.)
 
 ## 4. Skill Generation: the Agent Authors Its Own Skills
 

@@ -234,8 +234,8 @@ esp_err_t tool_registry_init(void)
     mimi_tool_t lr = {
         .name = "lua_run_script",
         .description = "Run a sandboxed Lua script from SPIFFS. Available modules: gpio (policy-checked), "
-                       "json, log, timer, arg_schema, and tool.invoke(name,args) for an allowlisted tool subset "
-                       "(web_search, get_current_time, read_file, list_dir); the JSON 'args' object becomes "
+                       "json, log, timer, arg_schema, and tool.invoke(name,args) to call any registered tool; "
+                       "the JSON 'args' object becomes "
                        "the global 'args' table. Returns the script's return value as JSON plus captured print() output.",
         .input_schema_json =
             "{\"type\":\"object\","
