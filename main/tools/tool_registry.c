@@ -5,6 +5,7 @@
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
 #include "tools/tool_gpio.h"
+#include "tools/tool_lua.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -213,6 +214,39 @@ esp_err_t tool_registry_init(void)
         .execute = tool_gpio_read_all_execute,
     };
     register_tool(&ga);
+
+    /* Register Lua scripting tools */
+    tool_lua_init();
+
+    mimi_tool_t lc = {
+        .name = "lua_check",
+        .description = "Compile-check a Lua script on SPIFFS without executing it. "
+                       "Returns OK or the compile error with its line number. "
+                       "Always check a script after writing it and before running it.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Script path starting with " MIMI_SPIFFS_BASE "/\"}},"
+            "\"required\":[\"path\"]}",
+        .execute = tool_lua_check_execute,
+    };
+    register_tool(&lc);
+
+    mimi_tool_t lr = {
+        .name = "lua_run_script",
+        .description = "Run a sandboxed Lua script from SPIFFS. Available modules: gpio (policy-checked), "
+                       "json, log, timer, arg_schema; the JSON 'args' object becomes the global 'args' table. "
+                       "Returns the script's return value as JSON plus captured print() output.",
+        .input_schema_json =
+            "{\"type\":\"object\","
+            "\"properties\":{"
+            "\"path\":{\"type\":\"string\",\"description\":\"Script path starting with " MIMI_SPIFFS_BASE "/\"},"
+            "\"args\":{\"type\":\"object\",\"description\":\"Arguments passed to the script as the global 'args' table\"},"
+            "\"timeout_ms\":{\"type\":\"integer\",\"description\":\"Execution timeout in ms (default 10000, max 30000)\"}"
+            "},"
+            "\"required\":[\"path\"]}",
+        .execute = tool_lua_run_execute,
+    };
+    register_tool(&lr);
 
     build_tools_json();
 

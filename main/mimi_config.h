@@ -123,6 +123,12 @@
 /* Skills */
 #define MIMI_SKILLS_PREFIX           MIMI_SPIFFS_BASE "/skills/"
 
+/* Lua scripting (sandboxed skill scripts) */
+#define MIMI_LUA_HEAP_MAX            (64 * 1024)   /* interpreter heap cap, PSRAM */
+#define MIMI_LUA_TIMEOUT_MS_DEFAULT  10000
+#define MIMI_LUA_TIMEOUT_MS_MAX      30000
+#define MIMI_LUA_PRINT_CAP           1024          /* captured print() bytes */
+
 /* WebSocket Gateway */
 #define MIMI_WS_PORT                 18789
 #define MIMI_WS_MAX_CLIENTS          4
