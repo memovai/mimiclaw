@@ -24,6 +24,7 @@ idf_component_register(
         "tools/gpio_policy.c"
         "tools/tool_lua.c"
         "tools/lua_mod_gpio.c"
+        "tools/lua_mod_tool.c"
         "skills/skill_loader.c"
         "onboard/wifi_onboard.c"
     INCLUDE_DIRS

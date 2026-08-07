@@ -1,5 +1,6 @@
 #include "tools/tool_lua.h"
 #include "tools/lua_mod_gpio.h"
+#include "tools/lua_mod_tool.h"
 #include "mimi_config.h"
 #include "mimi_lua.h"
 
@@ -16,6 +17,11 @@ esp_err_t tool_lua_init(void)
     esp_err_t err = lua_mod_gpio_register();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "gpio module registration failed");
+        return err;
+    }
+    err = lua_mod_tool_register();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "tool bridge module registration failed");
         return err;
     }
     ESP_LOGI(TAG, "Lua tools initialized");
