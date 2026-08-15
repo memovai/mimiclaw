@@ -272,6 +272,10 @@ static void agent_loop_task(void *arg)
 
         cJSON_Delete(messages);
 
+        /* Turn done with the LLM: release the keep-alive connection that was
+         * reused across this turn's tool iterations. */
+        llm_proxy_close_connection();
+
         /* 5. Send response */
         if (final_text && final_text[0]) {
             /* Save to session (only user text + final assistant text) */

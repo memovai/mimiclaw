@@ -59,3 +59,11 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                          cJSON *messages,
                          const char *tools_json,
                          llm_response_t *resp);
+
+/**
+ * Close the persistent keep-alive connection to the LLM API (direct path).
+ * The connection is otherwise reused across the tool iterations of a turn;
+ * call this at the end of a turn to release the socket. Safe to call when no
+ * connection is open. No-op for the proxy path.
+ */
+void llm_proxy_close_connection(void);

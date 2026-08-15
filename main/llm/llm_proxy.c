@@ -171,11 +171,17 @@ static void resp_buf_decode_chunked(resp_buf_t *rb)
 
 /* ── HTTP event handler (for esp_http_client direct path) ─────── */
 
+/* Persistent keep-alive client for the direct path. Reused across the tool
+ * iterations of a turn so the TLS handshake is paid once per turn, not once
+ * per LLM call. s_rb is the response accumulator for the current perform()
+ * (the client's user_data is fixed at init, but the target changes per call). */
+static esp_http_client_handle_t s_client = NULL;
+static resp_buf_t *s_rb = NULL;
+
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
-    resp_buf_t *rb = (resp_buf_t *)evt->user_data;
-    if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        resp_buf_append(rb, (const char *)evt->data, evt->data_len);
+    if (evt->event_id == HTTP_EVENT_ON_DATA && s_rb) {
+        resp_buf_append(s_rb, (const char *)evt->data, evt->data_len);
     }
     return ESP_OK;
 }
@@ -246,40 +252,82 @@ esp_err_t llm_proxy_init(void)
     return ESP_OK;
 }
 
-/* ── Direct path: esp_http_client ───────────────────────────── */
+/* ── Direct path: persistent keep-alive esp_http_client ──────── */
 
-static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out_status)
+static esp_err_t ensure_client(void)
 {
+    if (s_client) return ESP_OK;
+
     esp_http_client_config_t config = {
         .url = llm_api_url(),
         .event_handler = http_event_handler,
-        .user_data = rb,
         .timeout_ms = 120 * 1000,
         .buffer_size = 4096,
         .buffer_size_tx = 4096,
         .crt_bundle_attach = esp_crt_bundle_attach,
+        .keep_alive_enable = true,
     };
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client) return ESP_FAIL;
+    s_client = esp_http_client_init(&config);
+    if (!s_client) return ESP_FAIL;
 
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
-    esp_http_client_set_header(client, "Content-Type", "application/json");
+    /* Headers are stable for the life of the connection (endpoint + creds). */
+    esp_http_client_set_method(s_client, HTTP_METHOD_POST);
+    esp_http_client_set_header(s_client, "Content-Type", "application/json");
     if (provider_is_openai()) {
         if (s_api_key[0]) {
             char auth[LLM_API_KEY_MAX_LEN + 16];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
-            esp_http_client_set_header(client, "Authorization", auth);
+            esp_http_client_set_header(s_client, "Authorization", auth);
         }
     } else {
-        esp_http_client_set_header(client, "x-api-key", s_api_key);
-        esp_http_client_set_header(client, "anthropic-version", MIMI_LLM_API_VERSION);
+        esp_http_client_set_header(s_client, "x-api-key", s_api_key);
+        esp_http_client_set_header(s_client, "anthropic-version", MIMI_LLM_API_VERSION);
     }
-    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+    return ESP_OK;
+}
 
-    esp_err_t err = esp_http_client_perform(client);
-    *out_status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
+/* Close the persistent connection. Call at the end of a turn, and whenever
+ * the endpoint or credentials change. Safe when no client exists. */
+void llm_proxy_close_connection(void)
+{
+    if (s_client) {
+        esp_http_client_close(s_client);
+        esp_http_client_cleanup(s_client);
+        s_client = NULL;
+        ESP_LOGD(TAG, "LLM connection closed");
+    }
+}
+
+static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out_status)
+{
+    esp_err_t err = ensure_client();
+    if (err != ESP_OK) return err;
+
+    /* A keep-alive socket left idle since the previous iteration (e.g. across
+     * a long tool call) may have been dropped by the server. Try once on the
+     * reused connection; on transport failure, rebuild and retry once. */
+    err = ESP_FAIL;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        rb->len = 0;
+        if (rb->data) rb->data[0] = '\0';
+
+        esp_http_client_set_post_field(s_client, post_data, strlen(post_data));
+        s_rb = rb;
+        err = esp_http_client_perform(s_client);
+        s_rb = NULL;
+
+        if (err == ESP_OK) break;
+
+        ESP_LOGW(TAG, "perform failed (%s); connection dropped (attempt %d/2)",
+                 esp_err_to_name(err), attempt + 1);
+        llm_proxy_close_connection();
+        if (attempt + 1 < 2 && ensure_client() != ESP_OK) return ESP_FAIL;
+    }
+
+    if (err == ESP_OK) {
+        *out_status = esp_http_client_get_status_code(s_client);
+    }
     return err;
 }
 
@@ -780,6 +828,7 @@ esp_err_t llm_set_api_key(const char *api_key)
     nvs_close(nvs);
 
     safe_copy(s_api_key, sizeof(s_api_key), api_key);
+    llm_proxy_close_connection();  /* auth header changed; rebuild on next call */
     ESP_LOGI(TAG, "API key saved");
     return ESP_OK;
 }
@@ -806,6 +855,7 @@ esp_err_t llm_set_provider(const char *provider)
     nvs_close(nvs);
 
     safe_copy(s_provider, sizeof(s_provider), provider);
+    llm_proxy_close_connection();  /* endpoint + auth scheme changed; rebuild */
     ESP_LOGI(TAG, "Provider set to: %s", s_provider);
     return ESP_OK;
 }
