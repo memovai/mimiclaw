@@ -647,6 +647,16 @@ esp_err_t llm_chat_tools(const char *system_prompt,
             cJSON *message = cJSON_GetObjectItem(choice0, "message");
             if (message) {
                 cJSON *content = cJSON_GetObjectItem(message, "content");
+                /* Fallback for reasoning models (DeepSeek, Kimi, vLLM) */
+                if (!(content && cJSON_IsString(content) && content->valuestring[0])) {
+                    cJSON *tcs = cJSON_GetObjectItem(message, "tool_calls");
+                    bool has_tools = tcs && cJSON_IsArray(tcs) && cJSON_GetArraySize(tcs) > 0;
+                    if (!has_tools) {
+                        content = cJSON_GetObjectItem(message, "reasoning_content");
+                        if (!(content && cJSON_IsString(content) && content->valuestring[0]))
+                            content = cJSON_GetObjectItem(message, "reasoning");
+                    }
+                }
                 if (content && cJSON_IsString(content)) {
                     size_t tlen = strlen(content->valuestring);
                     resp->text = calloc(1, tlen + 1);
