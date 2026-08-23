@@ -259,6 +259,7 @@ MimiClawはAnthropicとOpenAI両方のツール呼び出しをサポート — L
 | `cron_add` | 定期または単発タスクをスケジュール（LLMが自律的にcronジョブを作成） |
 | `cron_list` | スケジュール済みのcronジョブを一覧表示 |
 | `cron_remove` | IDでcronジョブを削除 |
+| `wifi_scan` | 近くのWiFiネットワークをスキャンし、SSID、信号強度、チャネル、セキュリティ状態などの詳細を返す |
 
 ウェブ検索を有効にするには、`mimi_secrets.h`で[Tavily APIキー](https://app.tavily.com/home)（優先、`MIMI_SECRET_TAVILY_KEY`）または[Brave Search APIキー](https://brave.com/search/api/)（`MIMI_SECRET_SEARCH_KEY`）を設定してください。
 

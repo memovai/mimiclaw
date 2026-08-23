@@ -259,6 +259,7 @@ MimiClaw supports tool calling for both Anthropic and OpenAI — the LLM can cal
 | `cron_add` | Schedule a recurring or one-shot task (the LLM creates cron jobs on its own) |
 | `cron_list` | List all scheduled cron jobs |
 | `cron_remove` | Remove a cron job by ID |
+| `wifi_scan` | Scan for nearby WiFi networks and return details like SSID, signal strength, and security status |
 
 To enable web search, set a [Tavily API key](https://app.tavily.com/home) via `MIMI_SECRET_TAVILY_KEY` (preferred), or a [Brave Search API key](https://brave.com/search/api/) via `MIMI_SECRET_SEARCH_KEY` in `mimi_secrets.h`.
 

@@ -80,7 +80,7 @@
 #define MIMI_AGENT_SEND_WORKING_STATUS 1
 
 /* Timezone (POSIX TZ format) */
-#define MIMI_TIMEZONE                "PST8PDT,M3.2.0,M11.1.0"
+#define MIMI_TIMEZONE                "CST-8"
 
 /* LLM */
 #define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
@@ -88,6 +88,8 @@
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+#define MIMI_MOONSHOT_API_URL        "https://api.moonshot.cn/v1/chat/completions"
+#define MIMI_HUNYUAN_API_URL         "https://api.hunyuan.cloud.tencent.com/v1/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
