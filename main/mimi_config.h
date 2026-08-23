@@ -46,6 +46,18 @@
 #ifndef MIMI_SECRET_TAVILY_KEY
 #define MIMI_SECRET_TAVILY_KEY      ""
 #endif
+#ifndef MIMI_SECRET_MQTT_URI
+#define MIMI_SECRET_MQTT_URI        ""
+#endif
+#ifndef MIMI_SECRET_MQTT_CLIENT_ID
+#define MIMI_SECRET_MQTT_CLIENT_ID  ""
+#endif
+#ifndef MIMI_SECRET_MQTT_USERNAME
+#define MIMI_SECRET_MQTT_USERNAME   ""
+#endif
+#ifndef MIMI_SECRET_MQTT_PASSWORD
+#define MIMI_SECRET_MQTT_PASSWORD   ""
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -69,6 +81,16 @@
 #define MIMI_FEISHU_WEBHOOK_PORT         18790
 #define MIMI_FEISHU_WEBHOOK_PATH         "/feishu/events"
 #define MIMI_FEISHU_WEBHOOK_MAX_BODY     (16 * 1024)
+
+/* MQTT Bot */
+#define MIMI_MQTT_MAX_MSG_LEN            4096
+#define MIMI_MQTT_POLL_STACK             (12 * 1024)
+#define MIMI_MQTT_POLL_PRIO              5
+#define MIMI_MQTT_POLL_CORE              0
+#define MIMI_MQTT_KEEPALIVE_S            120
+#define MIMI_MQTT_TIMEOUT_MS             10000
+#define MIMI_MQTT_DEFAULT_SUB_TOPIC      "mimiclaw/chat/+/request"
+#define MIMI_MQTT_DEFAULT_PUB_TOPIC      "mimiclaw/chat/%s/response"
 
 /* Agent Loop */
 #define MIMI_AGENT_STACK             (24 * 1024)
@@ -136,6 +158,7 @@
 #define MIMI_NVS_WIFI                "wifi_config"
 #define MIMI_NVS_TG                  "tg_config"
 #define MIMI_NVS_FEISHU              "feishu_config"
+#define MIMI_NVS_MQTT                "mqtt_config"
 #define MIMI_NVS_LLM                 "llm_config"
 #define MIMI_NVS_PROXY               "proxy_config"
 #define MIMI_NVS_SEARCH              "search_config"
@@ -146,6 +169,11 @@
 #define MIMI_NVS_KEY_TG_TOKEN        "bot_token"
 #define MIMI_NVS_KEY_FEISHU_APP_ID   "app_id"
 #define MIMI_NVS_KEY_FEISHU_APP_SECRET "app_secret"
+#define MIMI_NVS_KEY_MQTT_URI        "broker_uri"
+#define MIMI_NVS_KEY_MQTT_CLIENT_ID  "client_id"
+#define MIMI_NVS_KEY_MQTT_USERNAME   "username"
+#define MIMI_NVS_KEY_MQTT_PASSWORD   "password"
+#define MIMI_NVS_KEY_MQTT_SUB_TOPIC  "sub_topic"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
 #define MIMI_NVS_KEY_TAVILY_KEY      "tavily_key"
 #define MIMI_NVS_KEY_MODEL           "model"

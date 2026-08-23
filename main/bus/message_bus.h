@@ -7,9 +7,13 @@
 /* Channel identifiers */
 #define MIMI_CHAN_TELEGRAM   "telegram"
 #define MIMI_CHAN_FEISHU     "feishu"
+#define MIMI_CHAN_MQTT       "mqtt"
 #define MIMI_CHAN_WEBSOCKET  "websocket"
 #define MIMI_CHAN_CLI        "cli"
 #define MIMI_CHAN_SYSTEM     "system"
+
+/* Channel name max length */
+#define MIMI_CHAN_NAME_MAX    16
 
 /* Message types on the bus */
 typedef struct {
