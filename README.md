@@ -113,6 +113,49 @@ xcode-select --install
 
 </details>
 
+<details>
+<summary>Building with PlatformIO</summary>
+
+PlatformIO provides an alternative build system with IDE integration support.
+
+**Prerequisites:**
+
+```bash
+pip install platformio
+```
+
+**Build and flash:**
+
+```bash
+# Build firmware
+pio run
+
+# Flash firmware
+pio run -t upload
+
+# Upload SPIFFS filesystem (required on first flash or when spiffs_data/ changes)
+pio run -t uploadfs
+
+# Serial monitor
+pio device monitor
+```
+
+**One-liner:**
+
+```bash
+pio run -t upload && pio run -t uploadfs && pio device monitor
+```
+
+Or use the helper script:
+
+```bash
+./scripts/build_pio.sh
+```
+
+> **Note:** PlatformIO uses ESP-IDF v5.5.x. Unlike ESP-IDF native build, SPIFFS requires a separate `uploadfs` step. ESP-IDF native build (`idf.py`) continues to work alongside PlatformIO.
+
+</details>
+
 ### Configure
 
 MimiClaw uses a **two-layer config** system: build-time defaults in `mimi_secrets.h`, with runtime overrides via the serial CLI. CLI values are stored in NVS flash and take priority over build-time values.

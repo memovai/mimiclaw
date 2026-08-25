@@ -113,6 +113,44 @@ xcode-select --install
 
 </details>
 
+<details>
+<summary>PlatformIO ビルド（代替案）</summary>
+
+PlatformIO は代替ビルドシステムを提供し、VS Code IDE 統合をサポートします。
+
+**前提条件：**
+
+```bash
+pip install platformio
+```
+
+**ビルドとフラッシュ：**
+
+```bash
+# ファームウェアをビルド
+pio run
+
+# ファームウェアをボードにフラッシュ
+pio run -t upload
+
+# SPIFFS ファイルシステムをアップロード（初回フラッシュ時または spiffs_data/ 変更時に必要）
+pio run -t uploadfs
+
+# シリアルモニター
+pio device monitor
+
+# または便利なスクリプトを使用
+./scripts/build_pio.sh
+```
+
+**注意事項：**
+
+- PlatformIO は ESP-IDF v5.5.x を使用します
+- SPIFFS は別途 `pio run -t uploadfs` でアップロードする必要があります（ESP-IDF ネイティブでは自動的に含まれます）
+- ESP-IDF ネイティブビルド（`idf.py`）は PlatformIO と並用できます
+
+</details>
+
 ### 設定
 
 MimiClawは**2層設定**を採用しています：`mimi_secrets.h`でビルド時のデフォルト値を設定し、シリアルCLIで実行時にオーバーライドできます。CLI設定値はNVS Flashに保存され、ビルド時の値より優先されます。
