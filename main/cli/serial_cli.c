@@ -9,6 +9,7 @@
 #include "proxy/http_proxy.h"
 #include "tools/tool_registry.h"
 #include "tools/tool_web_search.h"
+#include "tools/tool_get_time.h"
 #include "cron/cron_service.h"
 #include "heartbeat/heartbeat.h"
 #include "skills/skill_loader.h"
@@ -320,6 +321,28 @@ static int cmd_set_tavily_key(int argc, char **argv)
     return 0;
 }
 
+/* --- set_tz command --- */
+static struct {
+    struct arg_str *tz;
+    struct arg_end *end;
+} tz_args;
+
+static int cmd_set_tz(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&tz_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, tz_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = timezone_set(tz_args.tz->sval[0]);
+    if (err != ESP_OK) {
+        printf("Error: invalid timezone string (%s)\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Timezone set.\n");
+    return 0;
+}
+
 /* --- wifi_scan command --- */
 static int cmd_wifi_scan(int argc, char **argv)
 {
@@ -567,6 +590,7 @@ static int cmd_config_show(int argc, char **argv)
     print_config_u16("Proxy Port", MIMI_NVS_PROXY, MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
     print_config("Tavily Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_TAVILY_KEY, MIMI_SECRET_TAVILY_KEY, true);
+    printf("  %-14s: %s\n", "Timezone", timezone_get());
     printf("=============================\n");
     return 0;
 }
@@ -575,9 +599,10 @@ static int cmd_config_show(int argc, char **argv)
 static int cmd_config_reset(int argc, char **argv)
 {
     const char *namespaces[] = {
-        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH
+        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH,
+        MIMI_NVS_TZ
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         nvs_handle_t nvs;
         if (nvs_open(namespaces[i], NVS_READWRITE, &nvs) == ESP_OK) {
             nvs_erase_all(nvs);
@@ -994,6 +1019,17 @@ esp_err_t serial_cli_init(void)
         .argtable = &tavily_key_args,
     };
     esp_console_cmd_register(&tavily_key_cmd);
+
+    /* set_tz */
+    tz_args.tz = arg_str1(NULL, NULL, "<tz>", "POSIX TZ string");
+    tz_args.end = arg_end(1);
+    esp_console_cmd_t tz_cmd = {
+        .command = "set_tz",
+        .help = "Set timezone (POSIX TZ format, e.g. PST8PDT,M3.2.0,M11.1.0)",
+        .func = &cmd_set_tz,
+        .argtable = &tz_args,
+    };
+    esp_console_cmd_register(&tz_cmd);
 
     /* set_proxy */
     proxy_args.host = arg_str1(NULL, NULL, "<host>", "Proxy host/IP");
