@@ -1,0 +1,32 @@
+如果模型调用报错，需要去调整这个c文件 mimiclaw/main/llm/
+大概是182 的位置
+有几个地方要调整 把硅基流动的调整为你使用的
+/* ── Provider helpers ──────────────────────────────────────────── */
+
+static bool provider_is_openai(void)
+{
+    return strcmp(s_provider, "openai") == 0|| strcmp(s_provider, "siliconflow") == 0;
+}
+
+static const char *llm_api_url(void)
+{
+    if (strcmp(s_provider, "siliconflow") == 0) return MIMI_SILICONFLOW_API_URL;
+    if (strcmp(s_provider, "openai") == 0) return MIMI_OPENAI_API_URL;
+    return MIMI_LLM_API_URL;
+}
+
+static const char *llm_api_host(void)
+{
+    if (strcmp(s_provider, "siliconflow") == 0) return "api.siliconflow.cn";
+    if (strcmp(s_provider, "openai") == 0) return "api.openai.com";
+    return "api.anthropic.com";
+}
+
+static const char *llm_api_path(void)
+{
+    if (provider_is_openai()) return "/v1/chat/completions";
+    return "/v1/messages";
+}
+
+/* ── Init ─────────────────────────────────────────────────────── */
+调整的意思大概得是 供应商替换siliconflow     20的位置 return "api.siliconflow.cn";    27 的"/v1/chat/completions   这个v1  有的大模型用的是v4   v5    
