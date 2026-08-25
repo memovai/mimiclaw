@@ -64,6 +64,13 @@ static struct {
     struct arg_end *end;
 } tg_token_args;
 
+/* --- tg_send command --- */
+static struct {
+    struct arg_str *chat_id;
+    struct arg_str *text;
+    struct arg_end *end;
+} tg_send_args;
+
 static int cmd_set_tg_token(int argc, char **argv)
 {
     int nerrors = arg_parse(argc, argv, (void **)&tg_token_args);
@@ -74,6 +81,20 @@ static int cmd_set_tg_token(int argc, char **argv)
     telegram_set_token(tg_token_args.token->sval[0]);
     printf("Telegram bot token saved.\n");
     return 0;
+}
+
+static int cmd_tg_send(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&tg_send_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, tg_send_args.end, argv[0]);
+        return 1;
+    }
+
+    esp_err_t err = telegram_send_message(tg_send_args.chat_id->sval[0],
+                                         tg_send_args.text->sval[0]);
+    printf("tg_send status: %s\n", esp_err_to_name(err));
+    return (err == ESP_OK) ? 0 : 1;
 }
 
 /* --- set_feishu_creds command --- */
@@ -839,6 +860,20 @@ esp_err_t serial_cli_init(void)
         .argtable = &tg_token_args,
     };
     esp_console_cmd_register(&tg_token_cmd);
+
+    /* tg_send */
+    tg_send_args.chat_id = arg_str1(NULL, NULL, "<chat_id>", "Telegram chat ID");
+    tg_send_args.text = arg_str1(NULL, NULL, "<text>", "Text message (quote if contains spaces)");
+    tg_send_args.end = arg_end(2);
+
+    esp_console_cmd_t tg_send_cmd = {
+        .command = "tg_send",
+        .help = "Send Telegram text: tg_send <chat_id> \"hello\"",
+        .func = &cmd_tg_send,
+        .argtable = &tg_send_args,
+    };
+    esp_console_cmd_register(&tg_send_cmd);
+
 
     /* set_feishu_creds */
     feishu_creds_args.app_id = arg_str1(NULL, NULL, "<app_id>", "Feishu App ID");
