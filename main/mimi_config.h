@@ -19,6 +19,9 @@
 #ifndef MIMI_SECRET_API_KEY
 #define MIMI_SECRET_API_KEY         ""
 #endif
+#ifndef MIMI_SECRET_API_BASE
+#define MIMI_SECRET_API_BASE        ""
+#endif
 #ifndef MIMI_SECRET_MODEL
 #define MIMI_SECRET_MODEL           ""
 #endif
@@ -86,8 +89,8 @@
 #define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
 #define MIMI_LLM_PROVIDER_DEFAULT    "anthropic"
 #define MIMI_LLM_MAX_TOKENS          4096
-#define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
-#define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+#define MIMI_LLM_API_BASE_ANTHROPIC  "https://api.anthropic.com/v1"
+#define MIMI_LLM_API_BASE_OPENAI     "https://api.openai.com/v1"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
@@ -147,6 +150,7 @@
 #define MIMI_NVS_KEY_FEISHU_APP_ID   "app_id"
 #define MIMI_NVS_KEY_FEISHU_APP_SECRET "app_secret"
 #define MIMI_NVS_KEY_API_KEY         "api_key"
+#define MIMI_NVS_KEY_API_BASE        "api_base"
 #define MIMI_NVS_KEY_TAVILY_KEY      "tavily_key"
 #define MIMI_NVS_KEY_MODEL           "model"
 #define MIMI_NVS_KEY_PROVIDER        "provider"
