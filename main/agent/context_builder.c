@@ -6,9 +6,13 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "context";
 
+/** Append the contents of a SPIFFS file into buf at the given offset.
+ *  If header is non-NULL, a markdown section header is written first.
+ *  Returns the new offset after appending. */
 static size_t append_file(char *buf, size_t size, size_t offset, const char *path, const char *header)
 {
     FILE *f = fopen(path, "r");
@@ -25,6 +29,10 @@ static size_t append_file(char *buf, size_t size, size_t offset, const char *pat
     return offset;
 }
 
+/** Build the full system prompt into buf (up to size bytes).
+ *  Combines the static instructions, personality/user files, long-term
+ *  memory, recent daily notes, and skill summaries. Temporary read
+ *  buffers are allocated from PSRAM to avoid overflowing the task stack. */
 esp_err_t context_build_system_prompt(char *buf, size_t size)
 {
     size_t off = 0;
@@ -76,27 +84,35 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
     off = append_file(buf, size, off, MIMI_SOUL_FILE, "Personality");
     off = append_file(buf, size, off, MIMI_USER_FILE, "User Info");
 
+    /* Allocate temp buffers from PSRAM to avoid stack overflow */
+    char *mem_buf = heap_caps_calloc(1, 4096, MALLOC_CAP_SPIRAM);
+    char *recent_buf = heap_caps_calloc(1, 4096, MALLOC_CAP_SPIRAM);
+    char *skills_buf = heap_caps_calloc(1, 2048, MALLOC_CAP_SPIRAM);
+
     /* Long-term memory */
-    char mem_buf[4096];
-    if (memory_read_long_term(mem_buf, sizeof(mem_buf)) == ESP_OK && mem_buf[0]) {
+    if (mem_buf && memory_read_long_term(mem_buf, 4096) == ESP_OK && mem_buf[0]) {
         off += snprintf(buf + off, size - off, "\n## Long-term Memory\n\n%s\n", mem_buf);
     }
 
     /* Recent daily notes (last 3 days) */
-    char recent_buf[4096];
-    if (memory_read_recent(recent_buf, sizeof(recent_buf), 3) == ESP_OK && recent_buf[0]) {
+    if (recent_buf && memory_read_recent(recent_buf, 4096, 3) == ESP_OK && recent_buf[0]) {
         off += snprintf(buf + off, size - off, "\n## Recent Notes\n\n%s\n", recent_buf);
     }
 
     /* Skills */
-    char skills_buf[2048];
-    size_t skills_len = skill_loader_build_summary(skills_buf, sizeof(skills_buf));
-    if (skills_len > 0) {
-        off += snprintf(buf + off, size - off,
-            "\n## Available Skills\n\n"
-            "Available skills (use read_file to load full instructions):\n%s\n",
-            skills_buf);
+    if (skills_buf) {
+        size_t skills_len = skill_loader_build_summary(skills_buf, 2048);
+        if (skills_len > 0) {
+            off += snprintf(buf + off, size - off,
+                "\n## Available Skills\n\n"
+                "Available skills (use read_file to load full instructions):\n%s\n",
+                skills_buf);
+        }
     }
+
+    free(mem_buf);
+    free(recent_buf);
+    free(skills_buf);
 
     ESP_LOGI(TAG, "System prompt built: %d bytes", (int)off);
     return ESP_OK;
