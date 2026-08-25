@@ -842,6 +842,26 @@ esp_err_t feishu_bot_start(void)
     return ESP_OK;
 }
 
+/* Build Feishu interactive card content string (schema 2.0, markdown element).
+ * Returns a heap-allocated JSON string; caller must free(). */
+static char *feishu_build_card_content(const char *text)
+{
+    cJSON *card = cJSON_CreateObject();
+    if (!card) return NULL;
+    cJSON_AddStringToObject(card, "schema", "2.0");
+    cJSON *body = cJSON_CreateObject();
+    cJSON *elements = cJSON_CreateArray();
+    cJSON *md = cJSON_CreateObject();
+    cJSON_AddStringToObject(md, "tag", "markdown");
+    cJSON_AddStringToObject(md, "content", text);
+    cJSON_AddItemToArray(elements, md);
+    cJSON_AddItemToObject(body, "elements", elements);
+    cJSON_AddItemToObject(card, "body", body);
+    char *card_str = cJSON_PrintUnformatted(card);
+    cJSON_Delete(card);
+    return card_str;
+}
+
 esp_err_t feishu_send_message(const char *chat_id, const char *text)
 {
     if (s_app_id[0] == '\0' || s_app_secret[0] == '\0') {
@@ -873,11 +893,8 @@ esp_err_t feishu_send_message(const char *chat_id, const char *text)
         memcpy(segment, text + offset, chunk);
         segment[chunk] = '\0';
 
-        /* Build content JSON: {"text":"..."} */
-        cJSON *content = cJSON_CreateObject();
-        cJSON_AddStringToObject(content, "text", segment);
-        char *content_str = cJSON_PrintUnformatted(content);
-        cJSON_Delete(content);
+        /* Build interactive card content (schema 2.0, markdown) */
+        char *content_str = feishu_build_card_content(segment);
         free(segment);
 
         if (!content_str) { offset += chunk; all_ok = 0; continue; }
@@ -885,7 +902,7 @@ esp_err_t feishu_send_message(const char *chat_id, const char *text)
         /* Build message body */
         cJSON *body = cJSON_CreateObject();
         cJSON_AddStringToObject(body, "receive_id", chat_id);
-        cJSON_AddStringToObject(body, "msg_type", "text");
+        cJSON_AddStringToObject(body, "msg_type", "interactive");
         cJSON_AddStringToObject(body, "content", content_str);
         free(content_str);
 
@@ -932,14 +949,12 @@ esp_err_t feishu_reply_message(const char *message_id, const char *text)
     char url[256];
     snprintf(url, sizeof(url), FEISHU_REPLY_MSG_URL, message_id);
 
-    cJSON *content = cJSON_CreateObject();
-    cJSON_AddStringToObject(content, "text", text);
-    char *content_str = cJSON_PrintUnformatted(content);
-    cJSON_Delete(content);
+    /* Build interactive card content (schema 2.0, markdown) */
+    char *content_str = feishu_build_card_content(text);
     if (!content_str) return ESP_ERR_NO_MEM;
 
     cJSON *body = cJSON_CreateObject();
-    cJSON_AddStringToObject(body, "msg_type", "text");
+    cJSON_AddStringToObject(body, "msg_type", "interactive");
     cJSON_AddStringToObject(body, "content", content_str);
     free(content_str);
 
