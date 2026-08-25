@@ -315,7 +315,14 @@ static void compute_initial_next_run(cron_job_t *job)
     time_t now = time(NULL);
 
     if (job->kind == CRON_KIND_EVERY) {
-        job->next_run = now + job->interval_s;
+        /* Optional start anchor: if at_epoch is set and in the future, use it
+         * as the first fire time. Lets callers say "every 86400s starting at
+         * tomorrow 10:00 local time" instead of "now + 24h". */
+        if (job->at_epoch > now) {
+            job->next_run = job->at_epoch;
+        } else {
+            job->next_run = now + job->interval_s;
+        }
     } else if (job->kind == CRON_KIND_AT) {
         if (job->at_epoch > now) {
             job->next_run = job->at_epoch;
