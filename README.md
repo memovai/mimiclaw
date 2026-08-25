@@ -133,7 +133,10 @@ Edit `main/mimi_secrets.h`:
 #define MIMI_SECRET_TAVILY_KEY      ""              // optional: Tavily API key (preferred)
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"
+#define MIMI_SECRET_TIMEZONE        "PST8PDT,..."   // optional: POSIX TZ for local timestamps
 ```
+
+> **Timezone.** `MIMI_SECRET_TIMEZONE` accepts any POSIX TZ string and defaults to US Pacific. Some common values: `"<-03>3"` for Brasília, `"WET0WEST,M3.5.0/1,M10.5.0"` for Lisbon, `"CET-1CEST,M3.5.0,M10.5.0/3"` for Berlin, `"JST-9"` for Tokyo. See [`tzset(3)`](https://man7.org/linux/man-pages/man3/tzset.3.html) for the full grammar. More examples in `main/mimi_secrets.h.example`.
 
 Then build and flash:
 
