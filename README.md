@@ -285,6 +285,14 @@ This turns MimiClaw into a proactive assistant — write tasks to `HEARTBEAT.md`
 - **Heartbeat** — periodically checks a task file and prompts the AI to act autonomously
 - **Tool use** — ReAct agent loop with tool calling for both providers
 
+## Browser Extension (Preview)
+
+For browser-control experiments, an optional bridge prototype is available under [`extension/`](extension/).
+
+- Install and run guide: **[extension/README.md](extension/README.md)**
+- Scope: desktop browser automation loop (not part of ESP32 firmware runtime path)
+- Use it to validate web action flows first, then port the same message protocol into firmware if needed
+
 ## For Developers
 
 Technical details live in the `docs/` folder:

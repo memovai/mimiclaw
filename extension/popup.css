@@ -1,0 +1,132 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 320px;
+  background: #f3f5f8;
+  color: #17202a;
+}
+
+main {
+  padding: 14px;
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+#status {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+#detail {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #6c7a89;
+  word-break: break-word;
+}
+
+.label {
+  display: block;
+  font-size: 12px;
+  color: #4c5a68;
+  margin-bottom: 4px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 10px;
+  font-size: 12px;
+  color: #4c5a68;
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 38px;
+  height: 22px;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #c6ced7;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+}
+
+.slider::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.switch input:checked + .slider {
+  background: #005fcc;
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .slider {
+  outline: 2px solid #8ab4f8;
+  outline-offset: 2px;
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #c6ced7;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  background: #005fcc;
+  color: #fff;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #4c5a68;
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mimibrowser</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>mimibrowser</h1>
+      <p id="status">Status: checking...</p>
+      <p id="detail"></p>
+
+      <label class="toggle-row" for="wsEnabled">
+        <span>Listener</span>
+        <span class="switch">
+          <input id="wsEnabled" type="checkbox" />
+          <span class="slider" aria-hidden="true"></span>
+        </span>
+      </label>
+
+      <label for="wsIp" class="label">WebSocket Server IP</label>
+      <input id="wsIp" type="text" placeholder="127.0.0.1" />
+      <button id="reconnect" class="primary">Reconnect</button>
+
+      <p class="hint">Fixed format: <code>ws://&lt;IP&gt;:8765/ws</code></p>
+    </main>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

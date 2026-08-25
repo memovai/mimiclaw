@@ -28,6 +28,9 @@ mimi_secrets.h
 
 # Environment
 .env
+extension/.env
+extension/.venv/
+extension/__pycache__/
 main/mimi_secrets.h
 
 # Cache / Compiled
