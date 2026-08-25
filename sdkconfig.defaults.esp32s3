@@ -35,7 +35,12 @@ CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# Console: USB Serial/JTAG primary (supports both input and output via USB)
-# ESP-IDF v5.5+ has TX timeout protection (50ms) so device won't hang
-# when no USB host is connected.
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# Console: UART primary (non-blocking), USB Serial/JTAG secondary.
+# Using USB-JTAG as the primary console caused boot to stall when the
+# device was powered from a USB charger/power bank with no host attached
+# (early ESP_LOGI calls in app_main block on the USB CDC TX queue).
+# UART as primary is non-blocking when nothing is connected, and the
+# secondary USB-JTAG still works for flash + debug + log output via the
+# USB port (matches the workflow documented in README.md).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
