@@ -32,6 +32,65 @@ static int64_t s_last_offset_save_us = 0;
 static uint64_t s_seen_msg_keys[TG_DEDUP_CACHE_SIZE] = {0};
 static size_t s_seen_msg_idx = 0;
 
+/* Allowed user IDs for access control */
+static int64_t s_allowed_users[MIMI_TG_MAX_ALLOWED_USERS] = {0};
+static size_t s_allowed_users_count = 0;
+
+static bool is_id_allowed(int64_t user_id, int64_t chat_id)
+{
+    if (s_allowed_users_count == 0) return true;
+    for (size_t i = 0; i < s_allowed_users_count; i++) {
+        if (s_allowed_users[i] == user_id) return true;
+        if (s_allowed_users[i] == chat_id) return true;
+    }
+    return false;
+}
+
+static void parse_allowed_users(const char *str)
+{
+    s_allowed_users_count = 0;
+    if (!str || !str[0]) return;
+
+    char buf[256];
+    strncpy(buf, str, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char *tok = strtok(buf, ",");
+    while (tok && s_allowed_users_count < MIMI_TG_MAX_ALLOWED_USERS) {
+        int64_t uid = strtoll(tok, NULL, 10);
+        if (uid != 0) {
+            s_allowed_users[s_allowed_users_count++] = uid;
+        }
+        tok = strtok(NULL, ",");
+    }
+}
+
+static void load_allowed_users(void)
+{
+    /* NVS takes priority */
+    nvs_handle_t nvs;
+    if (nvs_open(MIMI_NVS_TG, NVS_READONLY, &nvs) == ESP_OK) {
+        char buf[256] = {0};
+        size_t len = sizeof(buf);
+        if (nvs_get_str(nvs, MIMI_NVS_KEY_ALLOWED_USERS, buf, &len) == ESP_OK) {
+            parse_allowed_users(buf);
+            nvs_close(nvs);
+            ESP_LOGI(TAG, "Loaded %d allowed user(s) from NVS", (int)s_allowed_users_count);
+            return;
+        }
+        nvs_close(nvs);
+    }
+
+    /* Fall back to build-time secret */
+    if (MIMI_SECRET_ALLOWED_USERS[0]) {
+        parse_allowed_users(MIMI_SECRET_ALLOWED_USERS);
+        ESP_LOGI(TAG, "Loaded %d allowed user(s) from build config", (int)s_allowed_users_count);
+        return;
+    }
+
+    ESP_LOGI(TAG, "No user whitelist configured, allowing all users");
+}
+
 /* HTTP response accumulator */
 typedef struct {
     char *buf;
@@ -422,6 +481,25 @@ static void process_updates(const char *json_str)
             seen_msg_insert(msg_key);
         }
 
+        /* Check if sender or chat is allowed */
+        int64_t sender_id = 0;
+        cJSON *from = cJSON_GetObjectItem(message, "from");
+        if (from) {
+            cJSON *from_id = cJSON_GetObjectItem(from, "id");
+            if (cJSON_IsNumber(from_id)) {
+                sender_id = (int64_t)from_id->valuedouble;
+            }
+        }
+        int64_t chat_id_num = 0;
+        if (cJSON_IsNumber(chat_id)) {
+            chat_id_num = (int64_t)chat_id->valuedouble;
+        }
+        if (!is_id_allowed(sender_id, chat_id_num)) {
+            ESP_LOGW(TAG, "Ignoring message from unauthorized user %" PRId64 " in chat %" PRId64,
+                     sender_id, chat_id_num);
+            continue;
+        }
+
         ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
                  uid, msg_id_val, chat_id_str, text->valuestring);
 
@@ -495,6 +573,8 @@ esp_err_t telegram_bot_init(void)
     }
 
     /* s_bot_token is already initialized from MIMI_SECRET_TG_TOKEN as fallback */
+
+    load_allowed_users();
 
     if (s_bot_token[0]) {
         ESP_LOGI(TAG, "Telegram bot token loaded (len=%d)", (int)strlen(s_bot_token));
@@ -620,6 +700,22 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
     }
 
     return all_ok ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t telegram_set_allowed_users(const char *user_ids)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_set_str(nvs, MIMI_NVS_KEY_ALLOWED_USERS, user_ids);
+    if (err != ESP_OK) { nvs_close(nvs); return err; }
+    err = nvs_commit(nvs);
+    nvs_close(nvs);
+    if (err != ESP_OK) return err;
+
+    parse_allowed_users(user_ids);
+    ESP_LOGI(TAG, "Allowed users updated: %d user(s)", (int)s_allowed_users_count);
+    return ESP_OK;
 }
 
 esp_err_t telegram_set_token(const char *token)

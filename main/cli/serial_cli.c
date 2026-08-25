@@ -320,6 +320,28 @@ static int cmd_set_tavily_key(int argc, char **argv)
     return 0;
 }
 
+/* --- set_allowed_users command --- */
+static struct {
+    struct arg_str *user_ids;
+    struct arg_end *end;
+} allowed_users_args;
+
+static int cmd_set_allowed_users(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&allowed_users_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, allowed_users_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = telegram_set_allowed_users(allowed_users_args.user_ids->sval[0]);
+    if (err != ESP_OK) {
+        printf("Failed to set allowed users: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Allowed users set.\n");
+    return 0;
+}
+
 /* --- wifi_scan command --- */
 static int cmd_wifi_scan(int argc, char **argv)
 {
@@ -567,6 +589,7 @@ static int cmd_config_show(int argc, char **argv)
     print_config_u16("Proxy Port", MIMI_NVS_PROXY, MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT);
     print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
     print_config("Tavily Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_TAVILY_KEY, MIMI_SECRET_TAVILY_KEY, true);
+    print_config("Allowed IDs", MIMI_NVS_TG,   MIMI_NVS_KEY_ALLOWED_USERS, MIMI_SECRET_ALLOWED_USERS, false);
     printf("=============================\n");
     return 0;
 }
@@ -653,9 +676,9 @@ typedef struct {
 
 static void web_search_task(void *arg)
 {
-    web_search_task_ctx_t *task_ctx = (web_search_task_ctx_t *)arg;
-    task_ctx->err = tool_web_search_execute(task_ctx->input_json, task_ctx->output, task_ctx->output_size);
-    xSemaphoreGive(task_ctx->done);
+    web_search_task_ctx_t *ctx = (web_search_task_ctx_t *)arg;
+    ctx->err = tool_web_search_execute(ctx->input_json, ctx->output, ctx->output_size);
+    xSemaphoreGive(ctx->done);
     vTaskDelete(NULL);
 }
 
@@ -994,6 +1017,17 @@ esp_err_t serial_cli_init(void)
         .argtable = &tavily_key_args,
     };
     esp_console_cmd_register(&tavily_key_cmd);
+
+    /* set_allowed_users */
+    allowed_users_args.user_ids = arg_str1(NULL, NULL, "<ids>", "Comma-separated user IDs");
+    allowed_users_args.end = arg_end(1);
+    esp_console_cmd_t allowed_users_cmd = {
+        .command = "set_allowed_users",
+        .help = "Set allowed Telegram user IDs (e.g. set_allowed_users 123456789,-1001234567890)",
+        .func = &cmd_set_allowed_users,
+        .argtable = &allowed_users_args,
+    };
+    esp_console_cmd_register(&allowed_users_cmd);
 
     /* set_proxy */
     proxy_args.host = arg_str1(NULL, NULL, "<host>", "Proxy host/IP");
