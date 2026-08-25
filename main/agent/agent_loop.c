@@ -270,6 +270,9 @@ static void agent_loop_task(void *arg)
             iteration++;
         }
 
+        if (iteration >= MIMI_AGENT_MAX_TOOL_ITER) {
+            ESP_LOGE(TAG, "Reached maximum tool iterations, stop processing");
+        }
         cJSON_Delete(messages);
 
         /* 5. Send response */
