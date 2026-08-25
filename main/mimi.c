@@ -178,6 +178,7 @@ void app_main(void)
         /* Start network-dependent services */
         ESP_ERROR_CHECK(agent_loop_start());
         ESP_ERROR_CHECK(telegram_bot_start());
+        telegram_send_first_boot_notice();  /* non-fatal: silent unless first boot */
         ESP_ERROR_CHECK(feishu_bot_start());
         cron_service_start();
         heartbeat_start();

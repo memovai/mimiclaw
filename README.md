@@ -133,7 +133,10 @@ Edit `main/mimi_secrets.h`:
 #define MIMI_SECRET_TAVILY_KEY      ""              // optional: Tavily API key (preferred)
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"
+#define MIMI_SECRET_TG_ADMIN_CHAT_ID ""             // optional: enables first-boot Telegram notice
 ```
+
+> **First-boot Telegram notification (optional).** Set `MIMI_SECRET_TG_ADMIN_CHAT_ID` to your chat ID (get it from [@userinfobot](https://t.me/userinfobot) on Telegram) and the device will send a one-time "MimiClaw booted" message — with IP and timestamp — the first time it comes online after flashing. The flag is persisted in NVS so subsequent boots are silent. Set `MIMI_TG_SEND_FIRST_BOOT` to `0` in `main/mimi_config.h` to disable the feature, or run `reset_first_boot` from the serial CLI to re-arm it without erasing NVS.
 
 Then build and flash:
 
@@ -190,6 +193,7 @@ mimi> session_list             # list all chat sessions
 mimi> session_clear 12345      # wipe a conversation
 mimi> heartbeat_trigger           # manually trigger a heartbeat check
 mimi> cron_start                  # start cron scheduler now
+mimi> reset_first_boot            # re-arm the first-boot Telegram notice
 mimi> restart                     # reboot
 ```
 

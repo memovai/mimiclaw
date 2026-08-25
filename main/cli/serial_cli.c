@@ -76,6 +76,20 @@ static int cmd_set_tg_token(int argc, char **argv)
     return 0;
 }
 
+/* --- reset_first_boot command --- */
+static int cmd_reset_first_boot(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    esp_err_t err = telegram_reset_first_boot_flag();
+    if (err == ESP_OK) {
+        printf("First-boot flag cleared. Next boot will re-send the Telegram notice.\n");
+        return 0;
+    }
+    printf("Failed to clear first-boot flag: %s\n", esp_err_to_name(err));
+    return 1;
+}
+
 /* --- set_feishu_creds command --- */
 static struct {
     struct arg_str *app_id;
@@ -839,6 +853,14 @@ esp_err_t serial_cli_init(void)
         .argtable = &tg_token_args,
     };
     esp_console_cmd_register(&tg_token_cmd);
+
+    /* reset_first_boot */
+    esp_console_cmd_t reset_first_boot_cmd = {
+        .command = "reset_first_boot",
+        .help = "Clear the first-boot Telegram-notice flag so the next boot re-sends it",
+        .func = &cmd_reset_first_boot,
+    };
+    esp_console_cmd_register(&reset_first_boot_cmd);
 
     /* set_feishu_creds */
     feishu_creds_args.app_id = arg_str1(NULL, NULL, "<app_id>", "Feishu App ID");
