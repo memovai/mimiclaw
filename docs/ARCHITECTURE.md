@@ -54,12 +54,13 @@ Telegram App (User)
 │   └──────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────┘
          │
-         │  Anthropic Messages API (HTTPS)
+         │  Anthropic/OpenAI/OpenRouter/NVIDIA NIM API (HTTPS)
          │  + Brave Search API (HTTPS)
          ▼
-   ┌───────────┐   ┌──────────────┐
-   │ Claude API │   │ Brave Search │
-   └───────────┘   └──────────────┘
+   ┌──────────────┐   ┌──────────────┐
+   │ LLM Provider │   │ Brave Search │
+   │ (API Gateway)│   │              │
+   └──────────────┘   └──────────────┘
 ```
 
 ---
@@ -75,7 +76,7 @@ Telegram App (User)
    b. Build system prompt (SOUL.md + USER.md + MEMORY.md + recent notes + tool guidance)
    c. Build cJSON messages array (history + current message)
    d. ReAct loop (max 10 iterations):
-      i.   Call Claude API via HTTPS (non-streaming, with tools array)
+      i.   Call LLM provider API via HTTPS (non-streaming, with tools array)
       ii.  Parse JSON response → text blocks + tool_use blocks
       iii. If stop_reason == "tool_use":
            - Execute each tool (e.g. web_search → Brave Search API)
@@ -158,7 +159,7 @@ main/
 | Task               | Core | Priority | Stack  | Description                          |
 |--------------------|------|----------|--------|--------------------------------------|
 | `tg_poll`          | 0    | 5        | 12 KB  | Telegram long polling (30s timeout)  |
-| `agent_loop`       | 1    | 6        | 12 KB  | Message processing + Claude API call |
+| `agent_loop`       | 1    | 6        | 12 KB  | Message processing + LLM provider API call |
 | `outbound`         | 0    | 5        | 8 KB   | Route responses to Telegram / WS     |
 | `serial_cli`       | 0    | 3        | 4 KB   | USB serial console REPL              |
 | httpd (internal)   | 0    | 5        | —      | WebSocket server (esp_http_server)   |
@@ -232,7 +233,7 @@ All configuration is done exclusively through `mimi_secrets.h` at build time. Th
 | `MIMI_SECRET_WIFI_SSID`     | WiFi SSID                               |
 | `MIMI_SECRET_WIFI_PASS`     | WiFi password                           |
 | `MIMI_SECRET_TG_TOKEN`      | Telegram Bot API token                  |
-| `MIMI_SECRET_API_KEY`       | Anthropic API key                       |
+| `MIMI_SECRET_API_KEY`       | LLM API key (Anthropic, OpenAI, OpenRouter, or NVIDIA NIM) |
 | `MIMI_SECRET_MODEL`         | Model ID (default: claude-opus-4-6)     |
 | `MIMI_SECRET_PROXY_HOST`    | HTTP proxy hostname/IP (optional)       |
 | `MIMI_SECRET_PROXY_PORT`    | HTTP proxy port (optional)              |
@@ -278,7 +279,15 @@ Client `chat_id` is auto-assigned on connection (`ws_<fd>`) but can be overridde
 
 ---
 
-## Claude API Integration
+## LLM Provider Integration
+
+MimiClaw supports multiple LLM providers via a unified API proxy:
+- **Anthropic** (`anthropic`) - Native Messages API
+- **OpenAI** (`openai`) - Chat Completions API
+- **OpenRouter** (`openrouter`) - OpenAI-compatible endpoint
+- **NVIDIA NIM** (`nvidia`) - OpenAI-compatible endpoint
+
+### Anthropic API Format
 
 Endpoint: `POST https://api.anthropic.com/v1/messages`
 
@@ -388,7 +397,7 @@ The CLI provides debug and maintenance commands only. All configuration is done 
 | `session/manager.py`        | `memory/session_mgr.c`         | JSONL per chat, ring buffer  |
 | `channels/telegram.py`      | `telegram/telegram_bot.c`      | Raw HTTP, no python-telegram-bot |
 | `bus/events.py` + `queue.py`| `bus/message_bus.c`            | FreeRTOS queues vs asyncio   |
-| `providers/litellm_provider.py` | `llm/llm_proxy.c`         | Direct Anthropic API only    |
+| `providers/litellm_provider.py` | `llm/llm_proxy.c`         | Multi-provider LLM API support  |
 | `config/schema.py`          | `mimi_config.h` + `mimi_secrets.h` | Build-time secrets only  |
 | `cli/commands.py`           | `cli/serial_cli.c`             | esp_console REPL             |
 | `agent/tools/*`             | `tools/tool_registry.c` + `tool_web_search.c` | web_search via Brave API |

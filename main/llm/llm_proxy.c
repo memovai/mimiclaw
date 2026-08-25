@@ -187,19 +187,47 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+static bool provider_is_openrouter(void)
+{
+    return strcmp(s_provider, "openrouter") == 0;
+}
+
+static bool provider_is_nvidia(void)
+{
+    return strcmp(s_provider, "nvidia") == 0;
+}
+
+/** Return the full API URL for the active provider. */
 static const char *llm_api_url(void)
 {
-    return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
+    if (provider_is_openai()) return MIMI_OPENAI_API_URL;
+    if (provider_is_openrouter()) return MIMI_OPENROUTER_API_URL;
+    if (provider_is_nvidia()) return MIMI_NVIDIA_NIM_API_URL;
+    return MIMI_LLM_API_URL;
 }
 
+/** Return the HTTP Host header value for the active provider. */
 static const char *llm_api_host(void)
 {
-    return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
+    /* TODO(PR#40): derive host from configured API URL once custom provider URLs are supported. */
+    if (provider_is_openai()) return "api.openai.com";
+    if (provider_is_openrouter()) return "openrouter.ai";
+    if (provider_is_nvidia()) return "integrate.api.nvidia.com";
+    return "api.anthropic.com";
 }
 
+/** Return the HTTP request path for the active provider. */
 static const char *llm_api_path(void)
 {
-    return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
+    if (provider_is_openrouter()) return "/api/v1/chat/completions";
+    if (provider_is_openai() || provider_is_nvidia()) return "/v1/chat/completions";
+    return "/v1/messages";
+}
+
+/** Return true for OpenAI-compatible providers (OpenAI, OpenRouter, NVIDIA NIM). */
+static bool provider_is_openai_compat(void)
+{
+    return provider_is_openai() || provider_is_openrouter() || provider_is_nvidia();
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
@@ -265,7 +293,7 @@ static esp_err_t llm_http_direct(const char *post_data, resp_buf_t *rb, int *out
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    if (provider_is_openai()) {
+    if (provider_is_openai_compat()) {
         if (s_api_key[0]) {
             char auth[LLM_API_KEY_MAX_LEN + 16];
             snprintf(auth, sizeof(auth), "Bearer %s", s_api_key);
@@ -293,7 +321,7 @@ static esp_err_t llm_http_via_proxy(const char *post_data, resp_buf_t *rb, int *
     int body_len = strlen(post_data);
     char header[1024];
     int hlen = 0;
-    if (provider_is_openai()) {
+    if (provider_is_openai_compat()) {
         hlen = snprintf(header, sizeof(header),
             "POST %s HTTP/1.1\r\n"
             "Host: %s\r\n"
@@ -559,13 +587,13 @@ esp_err_t llm_chat_tools(const char *system_prompt,
     /* Build request body (non-streaming) */
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", s_model);
-    if (provider_is_openai()) {
+    if (provider_is_openai_compat()) {
         cJSON_AddNumberToObject(body, "max_completion_tokens", MIMI_LLM_MAX_TOKENS);
     } else {
         cJSON_AddNumberToObject(body, "max_tokens", MIMI_LLM_MAX_TOKENS);
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai_compat()) {
         cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
         cJSON_AddItemToObject(body, "messages", openai_msgs);
 
@@ -635,7 +663,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai_compat()) {
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
         cJSON *choice0 = choices && cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
         if (choice0) {

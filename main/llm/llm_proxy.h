@@ -18,7 +18,7 @@ esp_err_t llm_proxy_init(void);
 esp_err_t llm_set_api_key(const char *api_key);
 
 /**
- * Save the LLM provider to NVS. (e.g. "anthropic", "openai")
+ * Save the LLM provider to NVS. (e.g. "anthropic", "openai", "openrouter", "nvidia")
  */
 esp_err_t llm_set_provider(const char *provider);
 
