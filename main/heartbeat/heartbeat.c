@@ -19,6 +19,8 @@ static const char *TAG = "heartbeat";
 
 static TimerHandle_t s_heartbeat_timer = NULL;
 
+static EventGroupHandle_t s_heartbeat_group;
+
 /* ── Content check ────────────────────────────────────────────── */
 
 /**
@@ -103,18 +105,35 @@ static bool heartbeat_send(void)
     return true;
 }
 
+/**
+ * An event listener to simplify work of `heartbeat_timer_callback()`.
+ * It waits for the signal from `heartbeat_timer_callback` to send heartbeat
+ */
+static void heartbeat_send_task(){
+    while(1){
+        xEventGroupWaitBits(s_heartbeat_group, HEARTBEAT_SEND_BIT, pdTRUE, pdFALSE, portMAX_DELAY);
+        heartbeat_send();
+    }
+}
+
 /* ── Timer callback ───────────────────────────────────────────── */
 
 static void heartbeat_timer_callback(TimerHandle_t xTimer)
 {
     (void)xTimer;
-    heartbeat_send();
+    xEventGroupSetBits(s_heartbeat_group, HEARTBEAT_SEND_BIT);
 }
 
 /* ── Public API ───────────────────────────────────────────────── */
 
 esp_err_t heartbeat_init(void)
 {
+    s_heartbeat_group = xEventGroupCreate();
+
+    if(s_heartbeat_group == NULL){
+        return ESP_FAIL;
+    }
+
     ESP_LOGI(TAG, "Heartbeat service initialized (file: %s, interval: %ds)",
              MIMI_HEARTBEAT_FILE, MIMI_HEARTBEAT_INTERVAL_MS / 1000);
     return ESP_OK;
@@ -122,6 +141,7 @@ esp_err_t heartbeat_init(void)
 
 esp_err_t heartbeat_start(void)
 {
+
     if (s_heartbeat_timer) {
         ESP_LOGW(TAG, "Heartbeat timer already running");
         return ESP_OK;
@@ -142,6 +162,11 @@ esp_err_t heartbeat_start(void)
 
     if (xTimerStart(s_heartbeat_timer, pdMS_TO_TICKS(1000)) != pdPASS) {
         ESP_LOGE(TAG, "Failed to start heartbeat timer");
+        return ESP_FAIL;
+    }
+
+    if(xTaskCreate(heartbeat_send_task, "heartbeat_send", 3 * 1024, NULL, 5, NULL) != pdPASS){
+        ESP_LOGE(TAG, "Failed to start hearbeat send task");
         return ESP_FAIL;
     }
 
