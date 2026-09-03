@@ -1,7 +1,10 @@
 #pragma once
 
 #include "esp_err.h"
+#include "esp_bit_defs.h"
 #include <stdbool.h>
+
+#define HEARTBEAT_SEND_BIT BIT0
 
 /**
  * Initialize the heartbeat service (logs ready state).

@@ -180,7 +180,7 @@ void app_main(void)
         ESP_ERROR_CHECK(telegram_bot_start());
         ESP_ERROR_CHECK(feishu_bot_start());
         cron_service_start();
-        heartbeat_start();
+        ESP_ERROR_CHECK(heartbeat_start());
         ESP_ERROR_CHECK(ws_server_start());
 
         ESP_LOGI(TAG, "All services started!");
