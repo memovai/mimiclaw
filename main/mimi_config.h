@@ -25,6 +25,9 @@
 #ifndef MIMI_SECRET_MODEL_PROVIDER
 #define MIMI_SECRET_MODEL_PROVIDER  "anthropic"
 #endif
+#ifndef MIMI_SECRET_MINIMAX_REGION
+#define MIMI_SECRET_MINIMAX_REGION  "global_en"
+#endif
 #ifndef MIMI_SECRET_PROXY_HOST
 #define MIMI_SECRET_PROXY_HOST      ""
 #endif
@@ -88,6 +91,16 @@
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
 #define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+/* MiniMax — OpenAI-compatible endpoint. Two regions are available and selected
+ * at runtime: "global_en" (api.minimax.io) and "cn_zh" (api.minimaxi.com).
+ * Default model is MiniMax-M3, with MiniMax-M2.7 as an alternative. */
+#define MIMI_MINIMAX_DEFAULT_MODEL   "MiniMax-M3"
+#define MIMI_MINIMAX_REGION_DEFAULT  "global_en"
+#define MIMI_MINIMAX_API_URL_GLOBAL  "https://api.minimax.io/v1/chat/completions"
+#define MIMI_MINIMAX_API_URL_CN      "https://api.minimaxi.com/v1/chat/completions"
+#define MIMI_MINIMAX_API_HOST_GLOBAL "api.minimax.io"
+#define MIMI_MINIMAX_API_HOST_CN     "api.minimaxi.com"
+#define MIMI_MINIMAX_API_PATH        "/v1/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
@@ -150,6 +163,7 @@
 #define MIMI_NVS_KEY_TAVILY_KEY      "tavily_key"
 #define MIMI_NVS_KEY_MODEL           "model"
 #define MIMI_NVS_KEY_PROVIDER        "provider"
+#define MIMI_NVS_KEY_MINIMAX_REGION  "mm_region"
 #define MIMI_NVS_KEY_PROXY_HOST      "host"
 #define MIMI_NVS_KEY_PROXY_PORT      "port"
 #define MIMI_NVS_KEY_PROXY_TYPE      "proxy_type"
