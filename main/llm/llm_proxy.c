@@ -237,12 +237,15 @@ static const char *llm_api_path(void)
 
 esp_err_t llm_proxy_init(void)
 {
+    bool model_configured = false;
+
     /* Start with build-time defaults */
     if (MIMI_SECRET_API_KEY[0] != '\0') {
         safe_copy(s_api_key, sizeof(s_api_key), MIMI_SECRET_API_KEY);
     }
     if (MIMI_SECRET_MODEL[0] != '\0') {
         safe_copy(s_model, sizeof(s_model), MIMI_SECRET_MODEL);
+        model_configured = true;
     }
     if (MIMI_SECRET_MODEL_PROVIDER[0] != '\0') {
         safe_copy(s_provider, sizeof(s_provider), MIMI_SECRET_MODEL_PROVIDER);
@@ -263,6 +266,7 @@ esp_err_t llm_proxy_init(void)
         len = sizeof(model_tmp);
         if (nvs_get_str(nvs, MIMI_NVS_KEY_MODEL, model_tmp, &len) == ESP_OK && model_tmp[0]) {
             safe_copy(s_model, sizeof(s_model), model_tmp);
+            model_configured = true;
         }
         char provider_tmp[16] = {0};
         len = sizeof(provider_tmp);
@@ -275,6 +279,10 @@ esp_err_t llm_proxy_init(void)
             safe_copy(s_minimax_region, sizeof(s_minimax_region), region_tmp);
         }
         nvs_close(nvs);
+    }
+
+    if (!model_configured && provider_is_minimax()) {
+        safe_copy(s_model, sizeof(s_model), MIMI_MINIMAX_DEFAULT_MODEL);
     }
 
     if (s_api_key[0]) {
