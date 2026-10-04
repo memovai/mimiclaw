@@ -46,6 +46,9 @@
 #ifndef MIMI_SECRET_TAVILY_KEY
 #define MIMI_SECRET_TAVILY_KEY      ""
 #endif
+#ifndef MIMI_SECRET_TIMEZONE
+#define MIMI_SECRET_TIMEZONE        "PST8PDT,M3.2.0,M11.1.0"
+#endif
 
 /* WiFi */
 #define MIMI_WIFI_MAX_RETRY          10
@@ -79,8 +82,9 @@
 #define MIMI_MAX_TOOL_CALLS          4
 #define MIMI_AGENT_SEND_WORKING_STATUS 1
 
-/* Timezone (POSIX TZ format) */
-#define MIMI_TIMEZONE                "PST8PDT,M3.2.0,M11.1.0"
+/* Timezone (POSIX TZ format). Override per-device via MIMI_SECRET_TIMEZONE
+ * in mimi_secrets.h. Default keeps prior behaviour (US Pacific with DST). */
+#define MIMI_TIMEZONE                MIMI_SECRET_TIMEZONE
 
 /* LLM */
 #define MIMI_LLM_DEFAULT_MODEL       "claude-opus-4-5"
