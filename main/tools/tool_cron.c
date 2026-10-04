@@ -64,6 +64,23 @@ esp_err_t tool_cron_add_execute(const char *input_json, char *output, size_t out
         }
         job.interval_s = (uint32_t)interval->valuedouble;
         job.delete_after_run = false;
+
+        /* Optional start anchor: if provided and in the future, the first
+         * fire happens at this timestamp instead of (now + interval_s).
+         * Subsequent fires follow interval_s as usual. */
+        cJSON *start_at = cJSON_GetObjectItem(root, "at_epoch");
+        if (start_at && cJSON_IsNumber(start_at)) {
+            int64_t anchor = (int64_t)start_at->valuedouble;
+            time_t now = time(NULL);
+            if (anchor <= now) {
+                snprintf(output, output_size,
+                         "Error: at_epoch %lld is not in the future (now=%lld)",
+                         (long long)anchor, (long long)now);
+                cJSON_Delete(root);
+                return ESP_ERR_INVALID_ARG;
+            }
+            job.at_epoch = anchor;
+        }
     } else if (strcmp(schedule_type, "at") == 0) {
         job.kind = CRON_KIND_AT;
         cJSON *at_epoch = cJSON_GetObjectItem(root, "at_epoch");
@@ -103,8 +120,10 @@ esp_err_t tool_cron_add_execute(const char *input_json, char *output, size_t out
     /* Format success response */
     if (job.kind == CRON_KIND_EVERY) {
         snprintf(output, output_size,
-                 "OK: Added recurring job '%s' (id=%s), runs every %lu seconds. Next run at epoch %lld.",
-                 job.name, job.id, (unsigned long)job.interval_s, (long long)job.next_run);
+                 "OK: Added recurring job '%s' (id=%s), runs every %lu seconds%s. Next run at epoch %lld.",
+                 job.name, job.id, (unsigned long)job.interval_s,
+                 job.at_epoch > 0 ? " starting at given anchor" : "",
+                 (long long)job.next_run);
     } else {
         snprintf(output, output_size,
                  "OK: Added one-shot job '%s' (id=%s), fires at epoch %lld.%s",
