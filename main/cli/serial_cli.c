@@ -130,7 +130,11 @@ static int cmd_set_api_key(int argc, char **argv)
         arg_print_errors(stderr, api_key_args.end, argv[0]);
         return 1;
     }
-    llm_set_api_key(api_key_args.key->sval[0]);
+    esp_err_t err = llm_set_api_key(api_key_args.key->sval[0]);
+    if (err != ESP_OK) {
+        printf("Error: failed to save API key (0x%x)\n", err);
+        return 1;
+    }
     printf("API key saved.\n");
     return 0;
 }
@@ -148,7 +152,11 @@ static int cmd_set_model(int argc, char **argv)
         arg_print_errors(stderr, model_args.end, argv[0]);
         return 1;
     }
-    llm_set_model(model_args.model->sval[0]);
+    esp_err_t err = llm_set_model(model_args.model->sval[0]);
+    if (err != ESP_OK) {
+        printf("Error: failed to save model (0x%x)\n", err);
+        return 1;
+    }
     printf("Model set.\n");
     return 0;
 }
@@ -166,7 +174,11 @@ static int cmd_set_model_provider(int argc, char **argv)
         arg_print_errors(stderr, provider_args.end, argv[0]);
         return 1;
     }
-    llm_set_provider(provider_args.provider->sval[0]);
+    esp_err_t err = llm_set_provider(provider_args.provider->sval[0]);
+    if (err != ESP_OK) {
+        printf("Error: invalid provider. Use: anthropic|openai|deepseek\n");
+        return 1;
+    }
     printf("Model provider set.\n");
     return 0;
 }
@@ -887,7 +899,7 @@ esp_err_t serial_cli_init(void)
     esp_console_cmd_register(&model_cmd);
 
     /* set_model_provider */
-    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai)");
+    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai|deepseek)");
     provider_args.end = arg_end(1);
     esp_console_cmd_t provider_cmd = {
         .command = "set_model_provider",
