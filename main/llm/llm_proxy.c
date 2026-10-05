@@ -187,18 +187,26 @@ static bool provider_is_openai(void)
     return strcmp(s_provider, "openai") == 0;
 }
 
+static bool provider_is_glm(void)
+{
+    return strcmp(s_provider, "glm") == 0;
+}
+
 static const char *llm_api_url(void)
 {
+    if (provider_is_glm()) return "https://open.bigmodel.cn/api/paas/v4/chat/completions";
     return provider_is_openai() ? MIMI_OPENAI_API_URL : MIMI_LLM_API_URL;
 }
 
 static const char *llm_api_host(void)
 {
+    if (provider_is_glm()) return "open.bigmodel.cn";
     return provider_is_openai() ? "api.openai.com" : "api.anthropic.com";
 }
 
 static const char *llm_api_path(void)
 {
+    if (provider_is_glm()) return "/api/paas/v4/chat/completions";
     return provider_is_openai() ? "/v1/chat/completions" : "/v1/messages";
 }
 
@@ -576,6 +584,18 @@ esp_err_t llm_chat_tools(const char *system_prompt,
                 cJSON_AddStringToObject(body, "tool_choice", "auto");
             }
         }
+    } else if (provider_is_glm()) {
+        /* GLM uses OpenAI-compatible format */
+        cJSON *openai_msgs = convert_messages_openai(system_prompt, messages);
+        cJSON_AddItemToObject(body, "messages", openai_msgs);
+
+        if (tools_json) {
+            cJSON *tools = convert_tools_openai(tools_json);
+            if (tools) {
+                cJSON_AddItemToObject(body, "tools", tools);
+                cJSON_AddStringToObject(body, "tool_choice", "auto");
+            }
+        }
     } else {
         cJSON_AddStringToObject(body, "system", system_prompt);
 
@@ -635,7 +655,7 @@ esp_err_t llm_chat_tools(const char *system_prompt,
         return ESP_FAIL;
     }
 
-    if (provider_is_openai()) {
+    if (provider_is_openai() || provider_is_glm()) {
         cJSON *choices = cJSON_GetObjectItem(root, "choices");
         cJSON *choice0 = choices && cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
         if (choice0) {

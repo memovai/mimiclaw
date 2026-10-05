@@ -22,7 +22,7 @@ MimiClaw turns a tiny ESP32-S3 board into a personal AI assistant. Plug it into 
 ## Meet MimiClaw
 
 - **Tiny** — No Linux, no Node.js, no bloat — just pure C
-- **Handy** — Message it from Telegram, it handles the rest
+- **Handy** — Message it from Telegram, Feishu, or MQTT, it handles the rest
 - **Loyal** — Learns from memory, remembers across reboots
 - **Energetic** — USB power, 0.5 W, runs 24/7
 - **Lovable** — One ESP32-S3 board, $5, nothing else
@@ -31,7 +31,7 @@ MimiClaw turns a tiny ESP32-S3 board into a personal AI assistant. Plug it into 
 
 ![](assets/mimiclaw.png)
 
-You send a message on Telegram. The ESP32-S3 picks it up over WiFi, feeds it into an agent loop — the LLM thinks, calls tools, reads memory — and sends the reply back. Supports both **Anthropic (Claude)** and **OpenAI (GPT)** as providers, switchable at runtime. Everything runs on a single $5 chip with all your data stored locally on flash.
+You send a message on Telegram, Feishu, or MQTT. The ESP32-S3 picks it up over WiFi, feeds it into an agent loop — the LLM thinks, calls tools, reads memory — and sends the reply back. Supports both **Anthropic (Claude)** and **OpenAI (GPT)** as providers, switchable at runtime. Everything runs on a single $5 chip with all your data stored locally on flash.
 
 ## Quick Start
 
@@ -133,6 +133,10 @@ Edit `main/mimi_secrets.h`:
 #define MIMI_SECRET_TAVILY_KEY      ""              // optional: Tavily API key (preferred)
 #define MIMI_SECRET_PROXY_HOST      ""              // optional: e.g. "10.0.0.1"
 #define MIMI_SECRET_PROXY_PORT      ""              // optional: e.g. "7897"
+#define MIMI_SECRET_MQTT_URI        ""              // optional: e.g. "mqtts://broker.example.com:8883"
+#define MIMI_SECRET_MQTT_CLIENT_ID  ""              // optional: auto-generated if empty
+#define MIMI_SECRET_MQTT_USERNAME   ""              // optional; use only with TLS
+#define MIMI_SECRET_MQTT_PASSWORD   ""              // optional; use only with TLS
 ```
 
 Then build and flash:
@@ -175,6 +179,7 @@ mimi> set_proxy 127.0.0.1 7897  # set HTTP proxy
 mimi> clear_proxy                  # remove proxy
 mimi> set_search_key BSA...        # set Brave Search API key
 mimi> set_tavily_key tvly-...      # set Tavily API key (preferred)
+mimi> set_mqtt_config mqtts://broker.example.com:8883 [client_id] [username] [password]  # set MQTT broker
 mimi> config_show                  # show all config (masked)
 mimi> config_reset                 # clear NVS, revert to build-time defaults
 ```
@@ -183,6 +188,8 @@ mimi> config_reset                 # clear NVS, revert to build-time defaults
 
 ```
 mimi> wifi_status              # am I connected?
+mimi> mqtt_status              # is MQTT connected?
+mimi> mqtt_send topic "text"   # send MQTT message to topic
 mimi> memory_read              # see what the bot remembers
 mimi> memory_write "content"   # write to MEMORY.md
 mimi> heap_info                # how much RAM is free?
@@ -277,6 +284,7 @@ This turns MimiClaw into a proactive assistant — write tasks to `HEARTBEAT.md`
 ## Also Included
 
 - **WebSocket gateway** on port 18789 — connect from your LAN with any WebSocket client
+- **MQTT channel** — integrate with any MQTT broker for IoT and chat bot applications
 - **OTA updates** — flash new firmware over WiFi, no USB needed
 - **Dual-core** — network I/O and AI processing run on separate CPU cores
 - **HTTP proxy** — CONNECT tunnel support for restricted networks
