@@ -61,15 +61,15 @@ static bool parse_and_set_time(const char *date_str, char *out, size_t out_size)
     return true;
 }
 
-/* Fetch time via proxy: HEAD request to api.telegram.org, parse Date header */
+/* Fetch time via proxy: HEAD request to t.cn, parse Date header */
 static esp_err_t fetch_time_via_proxy(char *out, size_t out_size)
 {
-    proxy_conn_t *conn = proxy_conn_open("api.telegram.org", 443, 10000);
+    proxy_conn_t *conn = proxy_conn_open("t.cn", 443, 10000);
     if (!conn) return ESP_ERR_HTTP_CONNECT;
 
     const char *req =
         "HEAD / HTTP/1.1\r\n"
-        "Host: api.telegram.org\r\n"
+        "Host: t.cn\r\n"
         "Connection: close\r\n\r\n";
 
     if (proxy_conn_write(conn, req, strlen(req)) < 0) {
@@ -136,7 +136,7 @@ static esp_err_t fetch_time_direct(char *out, size_t out_size)
     time_header_ctx_t ctx = {0};
 
     esp_http_client_config_t config = {
-        .url = "https://api.telegram.org/",
+        .url = "https://t.cn/",
         .method = HTTP_METHOD_HEAD,
         .timeout_ms = 10000,
         .crt_bundle_attach = esp_crt_bundle_attach,

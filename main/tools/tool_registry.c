@@ -5,6 +5,8 @@
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
 #include "tools/tool_gpio.h"
+#include "tools/tool_system_info.h"
+#include "tools/tool_wifi_scan.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -183,11 +185,7 @@ esp_err_t tool_registry_init(void)
     mimi_tool_t gw = {
         .name = "gpio_write",
         .description = "Set a GPIO pin HIGH or LOW. Controls LEDs, relays, and other digital outputs.",
-        .input_schema_json =
-            "{\"type\":\"object\","
-            "\"properties\":{\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"},"
-            "\"state\":{\"type\":\"integer\",\"description\":\"1 for HIGH, 0 for LOW\"}},"
-            "\"required\":[\"pin\",\"state\"]}",
+        .input_schema_json = "{\"type\":\"object\", \"properties\":{\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"}, \"state\":{\"type\":\"integer\",\"description\":\"1 for HIGH, 0 for LOW\"}}, \"required\":[\"pin\",\"state\"]}",
         .execute = tool_gpio_write_execute,
     };
     register_tool(&gw);
@@ -195,10 +193,7 @@ esp_err_t tool_registry_init(void)
     mimi_tool_t gr = {
         .name = "gpio_read",
         .description = "Read a GPIO pin state. Returns HIGH or LOW. Use for checking switches, sensors, and digital inputs.",
-        .input_schema_json =
-            "{\"type\":\"object\","
-            "\"properties\":{\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"}},"
-            "\"required\":[\"pin\"]}",
+        .input_schema_json = "{\"type\":\"object\", \"properties\":{\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"}}, \"required\":[\"pin\"]}",
         .execute = tool_gpio_read_execute,
     };
     register_tool(&gr);
@@ -206,13 +201,32 @@ esp_err_t tool_registry_init(void)
     mimi_tool_t ga = {
         .name = "gpio_read_all",
         .description = "Read all allowed GPIO pin states in a single call. Returns each pin's HIGH/LOW state.",
-        .input_schema_json =
-            "{\"type\":\"object\","
-            "\"properties\":{},"
-            "\"required\":[]}",
+        .input_schema_json = "{\"type\":\"object\", \"properties\":{}, \"required\":[]}",
         .execute = tool_gpio_read_all_execute,
     };
     register_tool(&ga);
+
+    /* Register system_info */
+    tool_system_info_init();
+
+    mimi_tool_t si = {
+        .name = "system_info",
+        .description = "Get system and hardware information including chip details, memory usage, WiFi status, and uptime.",
+        .input_schema_json = "{\"type\":\"object\", \"properties\":{}, \"required\":[]}",
+        .execute = tool_system_info_execute,
+    };
+    register_tool(&si);
+
+    /* Register wifi_scan */
+    tool_wifi_scan_init();
+
+    mimi_tool_t wifi_scan_tool = {
+        .name = "wifi_scan",
+        .description = "Scan for nearby WiFi networks and return the results with SSID, signal strength, channel, and security status.",
+        .input_schema_json = "{\"type\":\"object\", \"properties\":{}, \"required\":[]}",
+        .execute = tool_wifi_scan_execute,
+    };
+    register_tool(&wifi_scan_tool);
 
     build_tools_json();
 

@@ -306,19 +306,27 @@ static esp_err_t brave_search_via_proxy(const char *path, search_buf_t *sb)
 static esp_err_t tavily_search_direct(const char *query, search_buf_t *sb)
 {
     char *payload = build_tavily_payload(query);
-    if (!payload) return ESP_ERR_NO_MEM;
+    if (!payload) {
+        ESP_LOGE(TAG, "Failed to build payload");
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "Tavily API URL: https://api.tavily.com/search");
+    ESP_LOGI(TAG, "Tavily API key: %s", s_tavily_key);
+    ESP_LOGI(TAG, "Tavily API request: %s", payload);
 
     esp_http_client_config_t config = {
         .url = "https://api.tavily.com/search",
         .event_handler = http_event_handler,
         .user_data = sb,
-        .timeout_ms = 15000,
+        .timeout_ms = 30000,
         .buffer_size = 4096,
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) {
+        ESP_LOGE(TAG, "Failed to initialize HTTP client");
         free(payload);
         return ESP_FAIL;
     }
@@ -331,12 +339,21 @@ static esp_err_t tavily_search_direct(const char *query, search_buf_t *sb)
     esp_http_client_set_header(client, "Authorization", auth);
     esp_http_client_set_post_field(client, payload, strlen(payload));
 
+    ESP_LOGI(TAG, "Executing HTTP request...");
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
+    ESP_LOGI(TAG, "Tavily API status: %d", status);
+    
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Tavily API error: %s", esp_err_to_name(err));
+    }
+    
     esp_http_client_cleanup(client);
     free(payload);
 
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        return err;
+    }
     if (status != 200) {
         ESP_LOGE(TAG, "Tavily API returned %d", status);
         return ESP_FAIL;
