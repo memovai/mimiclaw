@@ -171,6 +171,24 @@ static int cmd_set_model_provider(int argc, char **argv)
     return 0;
 }
 
+/* --- set_minimax_region command --- */
+static struct {
+    struct arg_str *region;
+    struct arg_end *end;
+} minimax_region_args;
+
+static int cmd_set_minimax_region(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&minimax_region_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, minimax_region_args.end, argv[0]);
+        return 1;
+    }
+    llm_set_minimax_region(minimax_region_args.region->sval[0]);
+    printf("MiniMax region set.\n");
+    return 0;
+}
+
 /* --- memory_read command --- */
 static int cmd_memory_read(int argc, char **argv)
 {
@@ -887,7 +905,7 @@ esp_err_t serial_cli_init(void)
     esp_console_cmd_register(&model_cmd);
 
     /* set_model_provider */
-    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai)");
+    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai|minimax)");
     provider_args.end = arg_end(1);
     esp_console_cmd_t provider_cmd = {
         .command = "set_model_provider",
@@ -896,6 +914,17 @@ esp_err_t serial_cli_init(void)
         .argtable = &provider_args,
     };
     esp_console_cmd_register(&provider_cmd);
+
+    /* set_minimax_region */
+    minimax_region_args.region = arg_str1(NULL, NULL, "<region>", "MiniMax region (global_en|cn_zh)");
+    minimax_region_args.end = arg_end(1);
+    esp_console_cmd_t minimax_region_cmd = {
+        .command = "set_minimax_region",
+        .help = "Set MiniMax API region (default: " MIMI_MINIMAX_REGION_DEFAULT ")",
+        .func = &cmd_set_minimax_region,
+        .argtable = &minimax_region_args,
+    };
+    esp_console_cmd_register(&minimax_region_cmd);
 
     /* skill_list */
     esp_console_cmd_t skill_list_cmd = {

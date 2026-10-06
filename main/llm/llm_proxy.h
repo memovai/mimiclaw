@@ -27,6 +27,12 @@ esp_err_t llm_set_provider(const char *provider);
  */
 esp_err_t llm_set_model(const char *model);
 
+/**
+ * Save the MiniMax region to NVS. ("global_en" -> api.minimax.io,
+ * "cn_zh" -> api.minimaxi.com). Only affects the MiniMax provider.
+ */
+esp_err_t llm_set_minimax_region(const char *region);
+
 /* ── Tool Use Support ──────────────────────────────────────────── */
 
 typedef struct {
