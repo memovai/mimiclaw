@@ -18,6 +18,19 @@ esp_err_t llm_proxy_init(void);
 esp_err_t llm_set_api_key(const char *api_key);
 
 /**
+ * Save the LLM API base URL to NVS.
+ *
+ * Expected format: http(s)://host[:port][/path]
+ * Examples:
+ *   - https://api.anthropic.com/v1
+ *   - https://api.openai.com/v1
+ *   - http://localhost:11434/v1
+ *   - https://api.minimaxi.com/anthropic/v1
+ *   - https://open.bigmodel.cn/api/paas/v4
+ */
+esp_err_t llm_set_api_base(const char *api_base);
+
+/**
  * Save the LLM provider to NVS. (e.g. "anthropic", "openai")
  */
 esp_err_t llm_set_provider(const char *provider);
